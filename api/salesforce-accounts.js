@@ -127,9 +127,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   }
   
   // Field selection - try custom fields first, fallback to standard
-  // Using Employee_Band__c for Account Segment (Tier) - matches SOW-Generator
-  // Using Expiring_ARR__c for Contract Value (Expiring ARR) - field name to be confirmed
-  const customFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Employee_Band__c for Account Segment (Tier) - confirmed API name
+  // Using Expiring_Revenue__c for Contract Value (Expiring ARR) - confirmed API name
+  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   let useCustomFields = true;
@@ -138,9 +138,10 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
     // Query 1: Accounts owned by user (by Owner.Email)
+    // Filter by IsActive = true to exclude inactive/closed accounts
     try {
       const escapedEmail = escapeSOQL(userEmail);
-      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
       
       try {
         const ownerResult = await conn.query(ownerQuery);
@@ -154,33 +155,126 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         }
         } catch (error) {
           if (error.errorCode === 'INVALID_FIELD') {
-            console.warn('Custom fields not found, trying alternative field names...');
+            // Log which field is invalid for debugging
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('INVALID_FIELD error details:', {
+                message: error.message,
+                errorCode: error.errorCode,
+                query: ownerQuery.substring(0, 200) + '...',
+              });
+            }
             
-            // Try alternative field names (including Employee_Band__c for tier)
-            const altCustomFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
-            try {
-              ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
-              const altResult = await conn.query(ownerQuery);
-              if (altResult.records) {
-                altResult.records.forEach(acc => {
-                  accountMap.set(acc.Id, acc);
-                });
-                if (process.env.NODE_ENV !== 'production') {
-                  console.log(`Found ${altResult.records.length} accounts with alternative field names`);
+            // Check if error is about IsActive field
+            const isActiveError = error.message && error.message.includes('IsActive');
+            
+            if (isActiveError) {
+              // IsActive field doesn't exist - retry without it
+              console.warn('IsActive field not found on Account, querying without status filter');
+              try {
+                ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+                const ownerResult = await conn.query(ownerQuery);
+                if (ownerResult.records) {
+                  ownerResult.records.forEach(acc => {
+                    accountMap.set(acc.Id, acc);
+                  });
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (without IsActive filter)`);
+                  }
+                }
+              } catch (retryError) {
+                // If still fails, might be custom fields issue
+                if (retryError.errorCode === 'INVALID_FIELD') {
+                  console.warn('Custom fields not found, trying alternative field names...');
+                  
+                  // Try alternative field names (including Employee_Band__c for tier)
+                  const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+                  try {
+                    ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+                    const altResult = await conn.query(ownerQuery);
+                    if (altResult.records) {
+                      altResult.records.forEach(acc => {
+                        accountMap.set(acc.Id, acc);
+                      });
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.log(`Found ${altResult.records.length} accounts with alternative field names`);
+                      }
+                    }
+                  } catch (altError) {
+                    // If alternative fields also fail, fall back to standard fields
+                    console.warn('Alternative custom fields also not found, using standard fields only');
+                    useCustomFields = false;
+                    ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+                    const ownerResult = await conn.query(ownerQuery);
+                    if (ownerResult.records) {
+                      ownerResult.records.forEach(acc => {
+                        accountMap.set(acc.Id, acc);
+                      });
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
+                      }
+                    }
+                  }
+                } else {
+                  throw retryError;
                 }
               }
-            } catch (altError) {
-              // If alternative fields also fail, fall back to standard fields
-              console.warn('Alternative custom fields also not found, using standard fields only');
-              useCustomFields = false;
-              ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
-              const ownerResult = await conn.query(ownerQuery);
-              if (ownerResult.records) {
-                ownerResult.records.forEach(acc => {
-                  accountMap.set(acc.Id, acc);
-                });
-                if (process.env.NODE_ENV !== 'production') {
-                  console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
+            } else {
+              // Not an IsActive error, try alternative field names
+              console.warn('Custom fields not found, trying alternative field names...');
+              
+              // Try alternative field names (including Employee_Band__c for tier)
+              const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+              try {
+                ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
+                const altResult = await conn.query(ownerQuery);
+                if (altResult.records) {
+                  altResult.records.forEach(acc => {
+                    accountMap.set(acc.Id, acc);
+                  });
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.log(`Found ${altResult.records.length} accounts with alternative field names`);
+                  }
+                }
+              } catch (altError) {
+                // If alternative fields also fail, check if it's IsActive error
+                if (altError.errorCode === 'INVALID_FIELD' && altError.message && altError.message.includes('IsActive')) {
+                  console.warn('IsActive field not found, retrying without status filter');
+                  ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+                  const altResult = await conn.query(ownerQuery);
+                  if (altResult.records) {
+                    altResult.records.forEach(acc => {
+                      accountMap.set(acc.Id, acc);
+                    });
+                  }
+                } else {
+                  // If alternative fields also fail, fall back to standard fields
+                  console.warn('Alternative custom fields also not found, using standard fields only');
+                  useCustomFields = false;
+                  ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
+                  try {
+                    const ownerResult = await conn.query(ownerQuery);
+                    if (ownerResult.records) {
+                      ownerResult.records.forEach(acc => {
+                        accountMap.set(acc.Id, acc);
+                      });
+                      if (process.env.NODE_ENV !== 'production') {
+                        console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
+                      }
+                    }
+                  } catch (stdError) {
+                    // Last resort: standard fields without IsActive
+                    if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('IsActive')) {
+                      ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+                      const ownerResult = await conn.query(ownerQuery);
+                      if (ownerResult.records) {
+                        ownerResult.records.forEach(acc => {
+                          accountMap.set(acc.Id, acc);
+                        });
+                      }
+                    } else {
+                      throw stdError;
+                    }
+                  }
                 }
               }
             }
@@ -207,9 +301,10 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           
           // Query accounts by IDs (Salesforce allows up to 200 IDs in IN clause)
           // Escape IDs to prevent injection (though IDs are typically safe)
+          // Filter by IsActive = true to exclude inactive/closed accounts
           const fields = useCustomFields ? customFields : standardFields;
           const idsString = accountIds.map(id => `'${escapeSOQL(id)}'`).join(',');
-          const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) ORDER BY Name`;
+          const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) AND IsActive = true ORDER BY Name`;
           
           try {
             const accountResult = await conn.query(accountQuery);
@@ -224,7 +319,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           } catch (error) {
             if (error.errorCode === 'INVALID_FIELD' && useCustomFields) {
               // Retry with standard fields
-              const standardAccountQuery = `SELECT ${standardFields} FROM Account WHERE Id IN (${idsString}) ORDER BY Name`;
+              const standardAccountQuery = `SELECT ${standardFields} FROM Account WHERE Id IN (${idsString}) AND IsActive = true ORDER BY Name`;
               const accountResult = await conn.query(standardAccountQuery);
               if (accountResult.records) {
                 accountResult.records.forEach(acc => {
@@ -246,15 +341,16 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
     
   } else {
     // For admins or other roles, get all accounts
+    // Filter by IsActive = true to exclude inactive/closed accounts
     try {
-      let adminQuery = `SELECT ${customFields} FROM Account ORDER BY Name LIMIT 100`;
+      let adminQuery = `SELECT ${customFields} FROM Account WHERE IsActive = true ORDER BY Name LIMIT 100`;
       try {
         const result = await conn.query(adminQuery);
         allAccounts = result.records || [];
       } catch (error) {
         if (error.errorCode === 'INVALID_FIELD') {
           console.warn('Custom fields not found, using standard fields only');
-          adminQuery = `SELECT ${standardFields} FROM Account ORDER BY Name LIMIT 100`;
+          adminQuery = `SELECT ${standardFields} FROM Account WHERE IsActive = true ORDER BY Name LIMIT 100`;
           const result = await conn.query(adminQuery);
           allAccounts = result.records || [];
         } else {
@@ -320,13 +416,14 @@ async function searchSalesforceAccounts(conn, searchTerm) {
   const escapedSearch = escapeSOQL(searchTerm.trim());
   
   // Field selection - try custom fields first, fallback to standard
-  // Using Employee_Band__c for Account Segment (Tier) - matches SOW-Generator
-  // Using Expiring_ARR__c for Contract Value (Expiring ARR) - field name to be confirmed
-  const customFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Employee_Band__c for Account Segment (Tier) - confirmed API name
+  // Using Expiring_Revenue__c for Contract Value (Expiring ARR) - confirmed API name
+  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   // Use LIKE for partial matching (case-insensitive)
-  let searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+  // Filter by IsActive = true to exclude inactive/closed accounts
+  let searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
   
   try {
     const result = await conn.query(searchQuery);
@@ -334,7 +431,7 @@ async function searchSalesforceAccounts(conn, searchTerm) {
   } catch (error) {
     if (error.errorCode === 'INVALID_FIELD') {
       // Retry with standard fields
-      searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+      searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
       const result = await conn.query(searchQuery);
       return result.records || [];
     } else {
@@ -371,8 +468,9 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
       || sfdcAccount.Tier
       || null;
     
-    // Primary: Expiring_ARR__c (Expiring ARR - field name to be confirmed)
-    const contractValue = sfdcAccount.Expiring_ARR__c
+    // Primary: Expiring_Revenue__c (Expiring ARR - confirmed API name)
+    const contractValue = sfdcAccount.Expiring_Revenue__c
+      || sfdcAccount.Expiring_ARR__c
       || sfdcAccount.ExpiringARR__c
       || sfdcAccount.ARR_Expiring__c
       || sfdcAccount.Contract_Value__c
@@ -381,14 +479,19 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
       || sfdcAccount.ContractValue
       || null;
     
-      // Log field values for debugging (only in non-production)
-      if (process.env.NODE_ENV !== 'production' && sfdcAccounts.length > 0 && sfdcAccounts.indexOf(sfdcAccount) === 0) {
-        console.log('Sample account fields:', {
+      // Log field values for debugging (always log first account to help diagnose issues)
+      if (sfdcAccounts.length > 0 && sfdcAccounts.indexOf(sfdcAccount) === 0) {
+        console.log('Sample account fields from Salesforce:', {
           Id: sfdcAccount.Id,
           Name: sfdcAccount.Name,
           'Employee_Band__c': sfdcAccount.Employee_Band__c,
+          'Expiring_Revenue__c': sfdcAccount.Expiring_Revenue__c,
           'Expiring_ARR__c': sfdcAccount.Expiring_ARR__c,
-          'All fields': Object.keys(sfdcAccount),
+          'Account_Segment__c': sfdcAccount.Account_Segment__c,
+          'Account_Tier__c': sfdcAccount.Account_Tier__c,
+          'Mapped accountTier': accountTier,
+          'Mapped contractValue': contractValue,
+          'All available fields': Object.keys(sfdcAccount),
         });
       }
     

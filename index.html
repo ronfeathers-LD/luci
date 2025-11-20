@@ -425,7 +425,27 @@
       
       // Fetch cases for an account (can be called independently)
       const fetchCasesForAccount = useCallback(async (accountData) => {
-        if (!accountData || (!accountData.salesforceId && !accountData.id)) {
+        if (!accountData) {
+          setCases([]);
+          setCasesLoading(false);
+          return;
+        }
+
+        // Use salesforceId if available, otherwise check if id is a Salesforce ID (no dashes, 15 or 18 chars)
+        // UUIDs have dashes, Salesforce IDs don't
+        const salesforceAccountId = accountData.salesforceId || 
+                                   (accountData.id && !accountData.id.includes('-') && 
+                                    (accountData.id.length === 15 || accountData.id.length === 18) 
+                                    ? accountData.id : null);
+        
+        if (!salesforceAccountId) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('Cannot fetch cases: No valid Salesforce Account ID found', { 
+              accountData,
+              hasSalesforceId: !!accountData.salesforceId,
+              id: accountData.id 
+            });
+          }
           setCases([]);
           setCasesLoading(false);
           return;
@@ -433,10 +453,9 @@
 
         setCasesLoading(true);
         try {
-          const salesforceAccountId = accountData.salesforceId || accountData.id;
           const params = new URLSearchParams({
             salesforceAccountId: salesforceAccountId,
-            accountId: accountData.id,
+            accountId: accountData.id, // This might be a UUID, which is fine for the lookup
           });
           
           const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
@@ -444,7 +463,12 @@
             const casesData = await casesResponse.json();
             const fetchedCases = casesData.cases || [];
             setCases(fetchedCases);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`Fetched ${fetchedCases.length} cases for account: ${salesforceAccountId}`);
+            }
           } else {
+            const errorData = await casesResponse.json().catch(() => ({}));
+            logError('Error fetching cases:', new Error(errorData.message || errorData.error || `HTTP ${casesResponse.status}`));
             setCases([]);
           }
         } catch (err) {
@@ -503,6 +527,16 @@
           fetchAccounts();
         }
       }, [user, isSearchMode]);
+
+      // Fetch cases when selected account changes
+      useEffect(() => {
+        if (selectedAccount) {
+          fetchCasesForAccount(selectedAccount);
+        } else {
+          setCases([]);
+          setShowCasesList(false);
+        }
+      }, [selectedAccount, fetchCasesForAccount]);
 
       // Search for accounts
       const handleSearch = async (searchQuery) => {
