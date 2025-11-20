@@ -183,65 +183,62 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         }
       }, [onSignIn]);
 
+      // Initialize Google Sign-In (only once)
       useEffect(() => {
-        // Wait for Google Identity Services to load
-        const initGoogleSignIn = () => {
-          retryCountRef.current++;
-          
-          if (window.google && window.google.accounts && window.google.accounts.id) {
-            try {
-              console.log('Initializing Google Sign-In with client ID:', GOOGLE_CLIENT_ID);
-              window.google.accounts.id.initialize({
-                client_id: GOOGLE_CLIENT_ID,
-                callback: handleCredentialResponse,
-              });
+        if (window.google && window.google.accounts && window.google.accounts.id) {
+          try {
+            window.google.accounts.id.initialize({
+              client_id: GOOGLE_CLIENT_ID,
+              callback: handleCredentialResponse,
+            });
+          } catch (err) {
+            console.error('Error initializing Google Sign-In:', err);
+            setError('Failed to initialize sign-in. Please refresh the page.');
+            setIsLoading(false);
+          }
+        }
+      }, [handleCredentialResponse]);
 
-              // Wait a bit for the DOM to be ready
-              setTimeout(() => {
-                if (buttonRef.current) {
-                  console.log('Rendering Google Sign-In button');
-                  window.google.accounts.id.renderButton(
-                    buttonRef.current,
-                    {
-                      theme: 'outline',
-                      size: 'large',
-                      width: '100%',
-                      text: 'signin_with',
-                    }
-                  );
-                  setIsLoading(false);
-                } else {
-                  console.warn('Button ref not ready, retrying...');
-                  if (retryCountRef.current < maxRetries) {
-                    setTimeout(initGoogleSignIn, 100);
-                  } else {
-                    setError('Failed to load sign-in button. Please refresh the page.');
-                    setIsLoading(false);
-                  }
+      // Render button when ref is ready
+      useEffect(() => {
+        const renderButton = () => {
+          if (window.google && window.google.accounts && window.google.accounts.id && buttonRef.current) {
+            try {
+              // Clear any existing content
+              buttonRef.current.innerHTML = '';
+              
+              window.google.accounts.id.renderButton(
+                buttonRef.current,
+                {
+                  theme: 'outline',
+                  size: 'large',
+                  width: '100%',
+                  text: 'signin_with',
                 }
-              }, 200);
+              );
+              setIsLoading(false);
             } catch (err) {
-              console.error('Error initializing Google Sign-In:', err);
-              setError('Failed to initialize sign-in. Please refresh the page.');
+              console.error('Error rendering button:', err);
+              setError('Failed to render sign-in button. Please refresh the page.');
               setIsLoading(false);
             }
+          } else if (retryCountRef.current < maxRetries) {
+            retryCountRef.current++;
+            setTimeout(renderButton, 100);
           } else {
-            // Retry if Google Identity Services hasn't loaded yet
-            if (retryCountRef.current < maxRetries) {
-              console.log('Waiting for Google Identity Services to load...', retryCountRef.current);
-              setTimeout(initGoogleSignIn, 100);
-            } else {
-              console.error('Google Identity Services failed to load after', maxRetries, 'attempts');
+            if (!window.google || !window.google.accounts) {
               setError('Google Sign-In failed to load. Please check your connection and refresh the page.');
-              setIsLoading(false);
+            } else {
+              setError('Failed to load sign-in button. Please refresh the page.');
             }
+            setIsLoading(false);
           }
         };
 
-        // Start initialization after a short delay to ensure DOM is ready
-        const timer = setTimeout(initGoogleSignIn, 500);
+        // Wait for both Google Identity Services and the ref to be ready
+        const timer = setTimeout(renderButton, 300);
         return () => clearTimeout(timer);
-      }, [handleCredentialResponse]);
+      }, []);
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
