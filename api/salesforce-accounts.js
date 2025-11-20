@@ -265,6 +265,7 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId) {
       annual_revenue: sfdcAccount.AnnualRevenue || null,
       owner_id: sfdcAccount.OwnerId || null,
       owner_name: sfdcAccount.Owner?.Name || null,
+      last_synced_at: new Date().toISOString(), // Track when this account was last synced
     };
 
     const { data: account, error: accountError } = await supabase
@@ -306,10 +307,11 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId) {
 
 /**
  * Get cached accounts from Supabase
+ * Returns accounts and whether they need refresh (based on last_synced_at)
  */
 async function getCachedAccounts(supabase, userId, email, role) {
   if (!supabase) {
-    return null;
+    return { accounts: null, needsRefresh: true };
   }
 
   // Get user
@@ -331,10 +333,10 @@ async function getCachedAccounts(supabase, userId, email, role) {
   }
 
   if (!user) {
-    return null;
+    return { accounts: null, needsRefresh: true };
   }
 
-  // Get accounts
+  // Get accounts with last_synced_at
   const { data: userAccounts } = await supabase
     .from('user_accounts')
     .select(`
@@ -348,31 +350,50 @@ async function getCachedAccounts(supabase, userId, email, role) {
         industry,
         annual_revenue,
         owner_id,
-        owner_name
+        owner_name,
+        last_synced_at
       )
     `)
     .eq('user_id', user.id);
 
   if (!userAccounts || userAccounts.length === 0) {
-    return null;
+    return { accounts: null, needsRefresh: true };
   }
 
-  return userAccounts.map(ua => ({
-    id: ua.accounts.salesforce_id || ua.accounts.id,
-    salesforceId: ua.accounts.salesforce_id,
-    name: ua.accounts.name,
-    accountTier: ua.accounts.account_tier,
-    contractValue: ua.accounts.contract_value,
-    industry: ua.accounts.industry,
-    annualRevenue: ua.accounts.annual_revenue ? parseFloat(ua.accounts.annual_revenue) : null,
-    ownerId: ua.accounts.owner_id,
-    ownerName: ua.accounts.owner_name,
-  }));
+  // Check if any account needs refresh (older than CACHE_TTL_HOURS)
+  const now = new Date();
+  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000; // Convert hours to milliseconds
+  let needsRefresh = false;
+
+  const accounts = userAccounts.map(ua => {
+    const account = ua.accounts;
+    const lastSynced = account.last_synced_at ? new Date(account.last_synced_at) : null;
+    
+    // Check if this account needs refresh
+    if (!lastSynced || (now - lastSynced) > cacheExpiry) {
+      needsRefresh = true;
+    }
+
+    return {
+      id: account.salesforce_id || account.id,
+      salesforceId: account.salesforce_id,
+      name: account.name,
+      accountTier: account.account_tier,
+      contractValue: account.contract_value,
+      industry: account.industry,
+      annualRevenue: account.annual_revenue ? parseFloat(account.annual_revenue) : null,
+      ownerId: account.owner_id,
+      ownerName: account.owner_name,
+    };
+  });
+
+  return { accounts, needsRefresh };
 }
 
 // Constants
 const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
 const REQUEST_TIMEOUT = 30000; // 30 seconds
+const CACHE_TTL_HOURS = 1; // Cache accounts for 1 hour before refreshing from Salesforce
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -396,12 +417,15 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: 'Request too large' });
   }
 
-  const { userId, email, role } = req.query;
+  const { userId, email, role, forceRefresh } = req.query;
 
   // Validate input
   if (!userId && !email) {
     return res.status(400).json({ error: 'Missing required parameter: userId or email' });
   }
+  
+  // Check if we should force refresh (bypass cache)
+  const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
 
   try {
     // Get Supabase client
@@ -474,81 +498,82 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Try to authenticate with Salesforce and fetch fresh data
+    // Check cache first (unless force refresh is requested)
     let accounts = [];
     let useCached = false;
-    let errorDetails = null;
+    let needsRefresh = true;
 
-    try {
-      console.log('Attempting Salesforce authentication...');
-      const sfdcAuth = await authenticateSalesforce(supabase);
-      console.log('Salesforce authenticated successfully');
+    if (!shouldForceRefresh) {
+      console.log('Checking cached accounts...');
+      const cacheResult = await getCachedAccounts(supabase, user.id, user.email, user.role);
       
-      console.log('Querying Salesforce accounts...');
-      const sfdcAccounts = await querySalesforceAccounts(
-        sfdcAuth.connection,
-        user.id,
-        user.email,
-        user.role || role
-      );
-      console.log(`Found ${sfdcAccounts.length} accounts in Salesforce`);
-
-      // Sync accounts to Supabase
-      const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
-      console.log(`Synced ${syncedAccounts.length} accounts to Supabase`);
-
-      // Transform to expected format
-      accounts = syncedAccounts.map(acc => ({
-        id: acc.salesforce_id || acc.id,
-        salesforceId: acc.salesforce_id,
-        name: acc.name,
-        accountTier: acc.account_tier,
-        contractValue: acc.contract_value,
-        industry: acc.industry,
-        annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
-        ownerId: acc.owner_id,
-        ownerName: acc.owner_name,
-      }));
-    } catch (sfdcError) {
-      console.error('Salesforce API error:', sfdcError);
-      errorDetails = {
-        message: sfdcError.message,
-        stack: process.env.NODE_ENV === 'production' ? undefined : sfdcError.stack,
-      };
-      
-      // Fallback to cached accounts from Supabase
-      console.log('Falling back to cached accounts...');
-      try {
-        const cachedAccounts = await getCachedAccounts(supabase, user.id, user.email, user.role);
-        if (cachedAccounts && cachedAccounts.length > 0) {
-          accounts = cachedAccounts;
+      if (cacheResult.accounts && cacheResult.accounts.length > 0) {
+        accounts = cacheResult.accounts;
+        needsRefresh = cacheResult.needsRefresh;
+        
+        if (!needsRefresh) {
+          console.log(`Using ${accounts.length} cached accounts (fresh)`);
           useCached = true;
-          console.log(`Using ${cachedAccounts.length} cached accounts`);
         } else {
-          // No cached accounts, return error with details
+          console.log(`Found ${accounts.length} cached accounts, but they need refresh`);
+        }
+      } else {
+        console.log('No cached accounts found, will query Salesforce');
+      }
+    } else {
+      console.log('Force refresh requested, skipping cache');
+    }
+
+    // Query Salesforce if cache is stale/missing or force refresh requested
+    if (needsRefresh || shouldForceRefresh) {
+      try {
+        console.log('Attempting Salesforce authentication...');
+        const sfdcAuth = await authenticateSalesforce(supabase);
+        console.log('Salesforce authenticated successfully');
+        
+        console.log('Querying Salesforce accounts...');
+        const sfdcAccounts = await querySalesforceAccounts(
+          sfdcAuth.connection,
+          user.id,
+          user.email,
+          user.role || role
+        );
+        console.log(`Found ${sfdcAccounts.length} accounts in Salesforce`);
+
+        // Sync accounts to Supabase
+        const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
+        console.log(`Synced ${syncedAccounts.length} accounts to Supabase`);
+
+        // Transform to expected format
+        accounts = syncedAccounts.map(acc => ({
+          id: acc.salesforce_id || acc.id,
+          salesforceId: acc.salesforce_id,
+          name: acc.name,
+          accountTier: acc.account_tier,
+          contractValue: acc.contract_value,
+          industry: acc.industry,
+          annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
+          ownerId: acc.owner_id,
+          ownerName: acc.owner_name,
+        }));
+        
+        useCached = false;
+      } catch (sfdcError) {
+        console.error('Salesforce API error:', sfdcError);
+        
+        // If we have cached accounts, use them even if stale
+        if (accounts.length > 0) {
+          console.log(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
+          useCached = true;
+        } else {
+          // No cached accounts available, return error
           return res.status(500).json({
             error: 'Failed to fetch accounts from Salesforce and no cached accounts available',
             details: process.env.NODE_ENV === 'production' 
               ? 'Check server logs for details' 
-              : errorDetails,
+              : sfdcError.message,
           });
         }
-      } catch (cacheError) {
-        console.error('Error fetching cached accounts:', cacheError);
-        return res.status(500).json({
-          error: 'Failed to fetch accounts from Salesforce and error fetching cached accounts',
-          details: process.env.NODE_ENV === 'production' 
-            ? 'Check server logs for details' 
-            : { sfdcError: errorDetails, cacheError: cacheError.message },
-        });
-      }
-    }
-
-    // If we have accounts from Supabase but didn't sync, get them
-    if (accounts.length === 0 && !useCached) {
-      const cachedAccounts = await getCachedAccounts(supabase, user.id, user.email, user.role);
-      if (cachedAccounts) {
-        accounts = cachedAccounts;
       }
     }
 

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   annual_revenue NUMERIC,
   owner_id TEXT,
   owner_name TEXT,
+  last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
