@@ -160,38 +160,11 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
     const LoginPage = ({ onSignIn }) => {
       const buttonRef = useRef(null);
       const [isLoading, setIsLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const retryCountRef = useRef(0);
+      const maxRetries = 50; // 5 seconds max wait time
 
-      useEffect(() => {
-        // Wait for Google Identity Services to load
-        const initGoogleSignIn = () => {
-          if (window.google && window.google.accounts) {
-            window.google.accounts.id.initialize({
-              client_id: GOOGLE_CLIENT_ID,
-              callback: handleCredentialResponse,
-            });
-
-            if (buttonRef.current) {
-              window.google.accounts.id.renderButton(
-                buttonRef.current,
-                {
-                  theme: 'outline',
-                  size: 'large',
-                  width: '100%',
-                  text: 'signin_with',
-                }
-              );
-            }
-            setIsLoading(false);
-          } else {
-            // Retry if Google Identity Services hasn't loaded yet
-            setTimeout(initGoogleSignIn, 100);
-          }
-        };
-
-        initGoogleSignIn();
-      }, []);
-
-      const handleCredentialResponse = (response) => {
+      const handleCredentialResponse = useCallback((response) => {
         // Decode the JWT token to get user info
         try {
           const base64Url = response.credential.split('.')[1];
@@ -206,9 +179,69 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
           onSignIn(userInfo);
         } catch (error) {
           console.error('Error decoding credential:', error);
-          alert('Error signing in. Please try again.');
+          setError('Error signing in. Please try again.');
         }
-      };
+      }, [onSignIn]);
+
+      useEffect(() => {
+        // Wait for Google Identity Services to load
+        const initGoogleSignIn = () => {
+          retryCountRef.current++;
+          
+          if (window.google && window.google.accounts && window.google.accounts.id) {
+            try {
+              console.log('Initializing Google Sign-In with client ID:', GOOGLE_CLIENT_ID);
+              window.google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleCredentialResponse,
+              });
+
+              // Wait a bit for the DOM to be ready
+              setTimeout(() => {
+                if (buttonRef.current) {
+                  console.log('Rendering Google Sign-In button');
+                  window.google.accounts.id.renderButton(
+                    buttonRef.current,
+                    {
+                      theme: 'outline',
+                      size: 'large',
+                      width: '100%',
+                      text: 'signin_with',
+                    }
+                  );
+                  setIsLoading(false);
+                } else {
+                  console.warn('Button ref not ready, retrying...');
+                  if (retryCountRef.current < maxRetries) {
+                    setTimeout(initGoogleSignIn, 100);
+                  } else {
+                    setError('Failed to load sign-in button. Please refresh the page.');
+                    setIsLoading(false);
+                  }
+                }
+              }, 200);
+            } catch (err) {
+              console.error('Error initializing Google Sign-In:', err);
+              setError('Failed to initialize sign-in. Please refresh the page.');
+              setIsLoading(false);
+            }
+          } else {
+            // Retry if Google Identity Services hasn't loaded yet
+            if (retryCountRef.current < maxRetries) {
+              console.log('Waiting for Google Identity Services to load...', retryCountRef.current);
+              setTimeout(initGoogleSignIn, 100);
+            } else {
+              console.error('Google Identity Services failed to load after', maxRetries, 'attempts');
+              setError('Google Sign-In failed to load. Please check your connection and refresh the page.');
+              setIsLoading(false);
+            }
+          }
+        };
+
+        // Start initialization after a short delay to ensure DOM is ready
+        const timer = setTimeout(initGoogleSignIn, 500);
+        return () => clearTimeout(timer);
+      }, [handleCredentialResponse]);
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
@@ -223,11 +256,22 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
             </div>
             <div className="space-y-4">
               {isLoading ? (
-                <div className="flex justify-center py-4">
-                  <LoaderIcon className="w-6 h-6 animate-spin text-blue-600" />
+                <div className="flex flex-col items-center justify-center py-4">
+                  <LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mb-2" />
+                  <p className="text-sm text-gray-500">Loading sign-in...</p>
+                </div>
+              ) : error ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <p className="text-sm text-red-700">{error}</p>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
+                  >
+                    Refresh page
+                  </button>
                 </div>
               ) : (
-                <div ref={buttonRef} className="w-full"></div>
+                <div ref={buttonRef} className="w-full" style={{ minHeight: '40px' }}></div>
               )}
             </div>
             <p className="text-xs text-gray-500 text-center mt-6">
