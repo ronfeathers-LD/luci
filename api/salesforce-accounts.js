@@ -251,6 +251,45 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
 }
 
 /**
+ * Search for cached accounts in Supabase by name
+ */
+async function searchCachedAccounts(supabase, searchTerm) {
+  if (!supabase || !searchTerm || searchTerm.trim().length < 2) {
+    return null;
+  }
+
+  const search = searchTerm.trim();
+  
+  // Search in Supabase cache by account name (case-insensitive)
+  const { data: cachedAccounts, error } = await supabase
+    .from('accounts')
+    .select('*')
+    .ilike('name', `%${search}%`)
+    .order('name', { ascending: true })
+    .limit(20);
+
+  if (error || !cachedAccounts || cachedAccounts.length === 0) {
+    return null;
+  }
+
+  // Check if cache is fresh (within TTL)
+  const now = new Date();
+  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
+  
+  // Check if all accounts are fresh (within TTL)
+  const allFresh = cachedAccounts.every(acc => {
+    if (!acc.last_synced_at) return false;
+    const lastSynced = new Date(acc.last_synced_at);
+    return (now - lastSynced) < cacheExpiry;
+  });
+
+  return {
+    accounts: cachedAccounts,
+    isFresh: allFresh,
+  };
+}
+
+/**
  * Search for accounts in Salesforce by name
  */
 async function searchSalesforceAccounts(conn, searchTerm) {
@@ -486,9 +525,46 @@ export default async function handler(req, res) {
     // Handle search request (bypasses user assignment logic)
     if (isSearch) {
       try {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Searching Salesforce for: ${search}`);
+        // CACHE-FIRST: Check Supabase cache before querying Salesforce
+        const cachedSearch = await searchCachedAccounts(supabase, search);
+        
+        if (cachedSearch && cachedSearch.isFresh) {
+          // Use cached results (fresh)
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Using ${cachedSearch.accounts.length} cached search results for: ${search}`);
+          }
+          
+          const accounts = cachedSearch.accounts.map(acc => ({
+            id: acc.salesforce_id || acc.id,
+            salesforceId: acc.salesforce_id,
+            name: acc.name,
+            accountTier: acc.account_tier,
+            contractValue: acc.contract_value,
+            industry: acc.industry,
+            annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
+            ownerId: acc.owner_id,
+            ownerName: acc.owner_name,
+            lastSyncedAt: acc.last_synced_at,
+          }));
+          
+          return res.status(200).json({
+            accounts: accounts,
+            total: accounts.length,
+            searchTerm: search,
+            isSearch: true,
+            cached: true,
+          });
         }
+        
+        // Cache is stale or missing - query Salesforce
+        if (process.env.NODE_ENV !== 'production') {
+          if (cachedSearch && !cachedSearch.isFresh) {
+            console.log(`Cache stale for search: ${search}, refreshing from Salesforce`);
+          } else {
+            console.log(`No cache found for search: ${search}, querying Salesforce`);
+          }
+        }
+        
         const sfdcAuth = await authenticateSalesforce(supabase);
         const searchResults = await searchSalesforceAccounts(sfdcAuth.connection, search);
         
@@ -513,9 +589,41 @@ export default async function handler(req, res) {
           total: accounts.length,
           searchTerm: search,
           isSearch: true,
+          cached: false,
         });
       } catch (searchError) {
         console.error('Salesforce search error:', searchError);
+        
+        // If Salesforce fails but we have stale cache, use it
+        const staleCache = await searchCachedAccounts(supabase, search);
+        if (staleCache && staleCache.accounts.length > 0) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Salesforce search failed, using ${staleCache.accounts.length} stale cached results`);
+          }
+          
+          const accounts = staleCache.accounts.map(acc => ({
+            id: acc.salesforce_id || acc.id,
+            salesforceId: acc.salesforce_id,
+            name: acc.name,
+            accountTier: acc.account_tier,
+            contractValue: acc.contract_value,
+            industry: acc.industry,
+            annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
+            ownerId: acc.owner_id,
+            ownerName: acc.owner_name,
+            lastSyncedAt: acc.last_synced_at,
+          }));
+          
+          return res.status(200).json({
+            accounts: accounts,
+            total: accounts.length,
+            searchTerm: search,
+            isSearch: true,
+            cached: true,
+            stale: true,
+          });
+        }
+        
         return res.status(500).json({
           error: 'Failed to search accounts',
           details: process.env.NODE_ENV === 'production' ? undefined : searchError.message,
