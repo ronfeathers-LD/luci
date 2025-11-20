@@ -100,38 +100,6 @@
       }
     };
 
-    // Fetch cases for an account (can be called independently)
-    const fetchCasesForAccount = async (accountData) => {
-      if (!accountData || (!accountData.salesforceId && !accountData.id)) {
-        setCases([]);
-        setCasesLoading(false);
-        return;
-      }
-
-      setCasesLoading(true);
-      try {
-        const salesforceAccountId = accountData.salesforceId || accountData.id;
-        const params = new URLSearchParams({
-          salesforceAccountId: salesforceAccountId,
-          accountId: accountData.id,
-        });
-        
-        const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
-        if (casesResponse.ok) {
-          const casesData = await casesResponse.json();
-          const fetchedCases = casesData.cases || [];
-          setCases(fetchedCases);
-        } else {
-          setCases([]);
-        }
-      } catch (err) {
-        logError('Error fetching cases:', err);
-        setCases([]);
-      } finally {
-        setCasesLoading(false);
-      }
-    };
-
     // Fetch Salesforce customer context (using real account data + cases)
     const fetchSalesforceData = async (customerIdentifier, accountData = null) => {
       // Use account data if provided, otherwise return minimal context
@@ -449,6 +417,38 @@
       const [casesLoading, setCasesLoading] = useState(false); // Loading state for cases
       const [showCasesList, setShowCasesList] = useState(false); // Toggle for showing cases list
       const maxRetries = 3;
+      
+      // Fetch cases for an account (can be called independently)
+      const fetchCasesForAccount = useCallback(async (accountData) => {
+        if (!accountData || (!accountData.salesforceId && !accountData.id)) {
+          setCases([]);
+          setCasesLoading(false);
+          return;
+        }
+
+        setCasesLoading(true);
+        try {
+          const salesforceAccountId = accountData.salesforceId || accountData.id;
+          const params = new URLSearchParams({
+            salesforceAccountId: salesforceAccountId,
+            accountId: accountData.id,
+          });
+          
+          const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
+          if (casesResponse.ok) {
+            const casesData = await casesResponse.json();
+            const fetchedCases = casesData.cases || [];
+            setCases(fetchedCases);
+          } else {
+            setCases([]);
+          }
+        } catch (err) {
+          logError('Error fetching cases:', err);
+          setCases([]);
+        } finally {
+          setCasesLoading(false);
+        }
+      }, []);
       
       // Fetch Salesforce accounts on mount
       useEffect(() => {
