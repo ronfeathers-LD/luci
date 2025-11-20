@@ -1,4 +1,4 @@
-# Deployment Guide - Customer Pulse Dashboard
+# Deployment Guide - L.U.C.I.
 
 ## Step-by-Step Setup Instructions
 

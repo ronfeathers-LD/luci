@@ -1,4 +1,4 @@
-# LUCI - Customer Pulse Dashboard
+# L.U.C.I.
 
 **LeanData Unified Customer Intelligence**
 
