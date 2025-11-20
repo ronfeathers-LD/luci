@@ -79,13 +79,15 @@ async function getCachedTranscription(supabase, customerIdentifier, salesforceAc
 
 /**
  * Search Avoma for meetings matching customer identifier
+ * Uses Salesforce Account ID if available (more reliable than customer name)
  */
-async function searchAvomaMeetings(avomaClient, customerIdentifier) {
-  const searchResult = await avomaClient.searchMeetings(customerIdentifier, 5);
+async function searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId = null) {
+  // Search with Salesforce Account ID if available, otherwise use customer name
+  const searchResult = await avomaClient.searchMeetings(customerIdentifier, 20, salesforceAccountId);
   
   // Get the most recent meeting with a ready transcript
   const meetings = searchResult.results || searchResult.calls || [];
-  const readyMeetings = meetings.filter(m => m.transcript_ready);
+  const readyMeetings = meetings.filter(m => m.transcript_ready && m.transcription_uuid);
   
   if (readyMeetings.length === 0) {
     return null;
@@ -261,15 +263,27 @@ export default async function handler(req, res) {
       transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
     } else {
       // Search for meetings by customer identifier
-      const meeting = await searchAvomaMeetings(avomaClient, customerIdentifier);
+      // Use Salesforce Account ID if available (more reliable than customer name)
+      const meeting = await searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId);
       
       if (!meeting) {
         return res.status(404).json({ 
-          error: 'No meetings with ready transcripts found for this customer' 
+          error: 'No meetings with ready transcripts found for this customer',
+          searchMethod: salesforceAccountId ? 'crm_account_ids' : 'customer_name',
+          customerIdentifier: customerIdentifier,
+          salesforceAccountId: salesforceAccountId || 'not provided'
         });
       }
 
-      transcriptionData = await fetchFromAvoma(avomaClient, meeting.uuid);
+      // Use meeting UUID (could be uuid or id field)
+      const meetingUuid = meeting.uuid || meeting.id;
+      if (!meetingUuid) {
+        return res.status(500).json({ 
+          error: 'Meeting found but missing UUID' 
+        });
+      }
+
+      transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
     }
 
     // Cache the transcription
