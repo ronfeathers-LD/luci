@@ -8,7 +8,6 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     @keyframes spin {
       to { transform: rotate(360deg); }
@@ -22,10 +21,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useCallback, useEffect, useRef } = React;
-
-    // Google OAuth Configuration
-    const GOOGLE_CLIENT_ID = '160384595408-625gmnr4j40cgjp44qkfljoeo6i0n7j9.apps.googleusercontent.com';
+    const { useState, useCallback } = React;
 
     /**
      * Customer Sentiment Analyzer
@@ -242,89 +238,7 @@ Please provide a sentiment analysis based on the customer's overall experience, 
       </svg>
     );
 
-    // Login Component
-    const LoginPage = ({ onSignIn }) => {
-      const buttonRef = useRef(null);
-      const [isLoading, setIsLoading] = useState(true);
-
-      useEffect(() => {
-        // Wait for Google Identity Services to load
-        const initGoogleSignIn = () => {
-          if (window.google && window.google.accounts) {
-            window.google.accounts.id.initialize({
-              client_id: GOOGLE_CLIENT_ID,
-              callback: handleCredentialResponse,
-            });
-
-            if (buttonRef.current) {
-              window.google.accounts.id.renderButton(
-                buttonRef.current,
-                {
-                  theme: 'outline',
-                  size: 'large',
-                  width: '100%',
-                  text: 'signin_with',
-                }
-              );
-            }
-            setIsLoading(false);
-          } else {
-            // Retry if Google Identity Services hasn't loaded yet
-            setTimeout(initGoogleSignIn, 100);
-          }
-        };
-
-        initGoogleSignIn();
-      }, []);
-
-      const handleCredentialResponse = (response) => {
-        // Decode the JWT token to get user info
-        try {
-          const base64Url = response.credential.split('.')[1];
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-          const jsonPayload = decodeURIComponent(
-            atob(base64)
-              .split('')
-              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-              .join('')
-          );
-          const userInfo = JSON.parse(jsonPayload);
-          onSignIn(userInfo);
-        } catch (error) {
-          console.error('Error decoding credential:', error);
-          alert('Error signing in. Please try again.');
-        }
-      };
-
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8">
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                Customer Pulse Dashboard
-              </h1>
-              <p className="text-gray-600">
-                Please sign in to continue
-              </p>
-            </div>
-            <div className="space-y-4">
-              {isLoading ? (
-                <div className="flex justify-center py-4">
-                  <LoaderIcon className="w-6 h-6 animate-spin text-blue-600" />
-                </div>
-              ) : (
-                <div ref={buttonRef} className="w-full"></div>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 text-center mt-6">
-              By signing in, you agree to our terms of service and privacy policy.
-            </p>
-          </div>
-        </div>
-      );
-    };
-
-    const SentimentAnalyzer = ({ user }) => {
+    const SentimentAnalyzer = () => {
       const [customerIdentifier, setCustomerIdentifier] = useState('Acme Corp');
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
@@ -368,38 +282,14 @@ Please provide a sentiment analysis based on the customer's overall experience, 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
           <div className="max-w-4xl mx-auto">
-            {/* Header with User Info and Logout */}
-            <div className="mb-8">
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-                <div className="text-center sm:text-left">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                    Customer Pulse Dashboard
-                  </h1>
-                  <p className="text-lg text-gray-600">
-                    Avoma Transcript & Salesforce Context Sentiment Analysis
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-lg shadow-sm">
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">
-                      {user?.name || 'User'}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {user?.email}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      window.google?.accounts?.id.disableAutoSelect();
-                      localStorage.removeItem('userInfo');
-                      window.location.reload();
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all whitespace-nowrap"
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              </div>
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                Customer Pulse Dashboard
+              </h1>
+              <p className="text-lg text-gray-600">
+                Avoma Transcript & Salesforce Context Sentiment Analysis
+              </p>
             </div>
 
             {/* Input Section */}
@@ -492,38 +382,8 @@ Please provide a sentiment analysis based on the customer's overall experience, 
       );
     };
 
-    // Main App Component with Authentication
-    const App = () => {
-      const [user, setUser] = useState(() => {
-        // Check if user is already logged in
-        const savedUser = localStorage.getItem('userInfo');
-        if (savedUser) {
-          try {
-            return JSON.parse(savedUser);
-          } catch (error) {
-            console.error('Error parsing saved user info:', error);
-            localStorage.removeItem('userInfo');
-            return null;
-          }
-        }
-        return null;
-      });
-
-      const handleSignIn = (userInfo) => {
-        // Save user info to localStorage
-        localStorage.setItem('userInfo', JSON.stringify(userInfo));
-        setUser(userInfo);
-      };
-
-      if (!user) {
-        return <LoginPage onSignIn={handleSignIn} />;
-      }
-
-      return <SentimentAnalyzer user={user} />;
-    };
-
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(<SentimentAnalyzer />);
   </script>
 </body>
 </html>
