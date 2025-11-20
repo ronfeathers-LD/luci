@@ -388,7 +388,8 @@
             const response = await fetch(`/api/salesforce-accounts?${params}`);
             
             if (!response.ok) {
-              throw new Error('Failed to fetch accounts');
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(errorData.message || errorData.error || 'Failed to fetch accounts');
             }
 
             const data = await response.json();
@@ -406,7 +407,7 @@
             });
           } catch (err) {
             logError('Error fetching accounts:', err);
-            setError('Failed to load accounts. Please refresh the page.');
+            setError(err.message || 'Failed to load accounts. Please refresh the page.');
           } finally {
             setLoadingAccounts(false);
           }

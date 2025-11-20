@@ -38,17 +38,10 @@ export default async function handler(req, res) {
       
       // Check if Supabase is configured
       if (!supabase) {
-        // Fallback to mock data if Supabase not configured
-        console.warn('Supabase not configured, using mock data');
-        return res.status(200).json({
-          id: sub,
-          google_sub: sub,
-          email: email,
-          name: name || email.split('@')[0],
-          picture: picture || null,
-          role: 'Account Manager',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        console.error('Supabase not configured');
+        return res.status(503).json({
+          error: 'Database not configured',
+          message: 'The application database is not properly configured. Please contact your administrator.',
         });
       }
 
@@ -117,14 +110,10 @@ export default async function handler(req, res) {
       
       // Check if Supabase is configured
       if (!supabase) {
-        // Fallback to mock data
-        console.warn('Supabase not configured, using mock data');
-        return res.status(200).json({
-          id: id || 'mock-user-id',
-          google_sub: google_sub || 'mock-sub',
-          email: email || 'user@example.com',
-          name: email?.split('@')[0] || 'User',
-          role: 'Account Manager',
+        console.error('Supabase not configured');
+        return res.status(503).json({
+          error: 'Database not configured',
+          message: 'The application database is not properly configured. Please contact your administrator.',
         });
       }
 

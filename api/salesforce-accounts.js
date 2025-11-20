@@ -440,38 +440,10 @@ export default async function handler(req, res) {
     
     // Check if Supabase is configured
     if (!supabase) {
-      // Fallback to mock data if Supabase not configured
-      console.warn('Supabase not configured, using mock data');
-      const mockAccounts = [
-        {
-          id: '001XX000004ABCD',
-          salesforceId: '001XX000004ABCD',
-          name: 'Acme Corp',
-          accountTier: 'Enterprise (Tier 1)',
-          contractValue: '$120,000/year',
-          ownerId: userId || 'mock-user-id',
-          ownerName: 'Sarah Johnson',
-          industry: 'Technology',
-          annualRevenue: 5000000,
-        },
-        {
-          id: '001XX000004EFGH',
-          salesforceId: '001XX000004EFGH',
-          name: 'TechStart Inc',
-          accountTier: 'Enterprise (Tier 2)',
-          contractValue: '$85,000/year',
-          ownerId: userId || 'mock-user-id',
-          ownerName: 'Sarah Johnson',
-          industry: 'Software',
-          annualRevenue: 2500000,
-        },
-      ];
-
-      return res.status(200).json({
-        accounts: mockAccounts,
-        total: mockAccounts.length,
-        userId: userId || email,
-        role: role || 'Account Manager',
+      console.error('Supabase not configured');
+      return res.status(503).json({
+        error: 'Database not configured',
+        message: 'The application database is not properly configured. Please contact your administrator.',
       });
     }
 
