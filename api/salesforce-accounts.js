@@ -430,10 +430,45 @@ async function searchSalesforceAccounts(conn, searchTerm) {
     return result.records || [];
   } catch (error) {
     if (error.errorCode === 'INVALID_FIELD') {
-      // Retry with standard fields
-      searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
-      const result = await conn.query(searchQuery);
-      return result.records || [];
+      // Check if error is about IsActive field
+      const isActiveError = error.message && error.message.includes('IsActive');
+      
+      if (isActiveError) {
+        // IsActive field doesn't exist - retry without it
+        console.warn('IsActive field not found on Account, searching without status filter');
+        try {
+          searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+          const result = await conn.query(searchQuery);
+          return result.records || [];
+        } catch (retryError) {
+          // If still fails, might be custom fields issue
+          if (retryError.errorCode === 'INVALID_FIELD') {
+            // Retry with standard fields (without IsActive)
+            searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+            const result = await conn.query(searchQuery);
+            return result.records || [];
+          } else {
+            throw retryError;
+          }
+        }
+      } else {
+        // Not an IsActive error, try standard fields with IsActive
+        try {
+          searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
+          const result = await conn.query(searchQuery);
+          return result.records || [];
+        } catch (stdError) {
+          // If standard fields with IsActive fails, check if it's IsActive error
+          if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('IsActive')) {
+            // Last resort: standard fields without IsActive
+            searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+            const result = await conn.query(searchQuery);
+            return result.records || [];
+          } else {
+            throw stdError;
+          }
+        }
+      }
     } else {
       console.error('Error searching accounts:', error);
       throw error;
