@@ -406,6 +406,8 @@
       const [isSearching, setIsSearching] = useState(false);
       const [isSearchMode, setIsSearchMode] = useState(false);
       const [dataSources, setDataSources] = useState(null); // Track data sources used
+      const [analysisData, setAnalysisData] = useState(null); // Store actual data used for analysis
+      const [showDataDetails, setShowDataDetails] = useState(false); // Toggle for showing data details
       const maxRetries = 3;
 
       // Fetch Salesforce accounts on mount
@@ -543,6 +545,15 @@
             ready_avoma_calls: meetingCounts?.ready || 0,
           };
 
+          // Store the actual data used for analysis (for transparency)
+          setAnalysisData({
+            transcription: transcription,
+            salesforceContext: enrichedContext,
+            transcriptionPreview: transcription.length > 500 
+              ? transcription.substring(0, 500) + '...' 
+              : transcription,
+          });
+          
           // Analyze sentiment
           const result = await analyzeSentiment(transcription, enrichedContext);
           setSentiment(result);
@@ -914,10 +925,200 @@
                       </div>
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-100">
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 mb-3">
                         <strong>AI Analysis:</strong> Powered by Google Gemini 2.5 Flash, analyzing conversation tone, 
                         customer language, and account context to generate sentiment score.
                       </p>
+                      <button
+                        onClick={() => setShowDataDetails(!showDataDetails)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium underline flex items-center gap-1"
+                        aria-expanded={showDataDetails}
+                        aria-label={showDataDetails ? 'Hide data details' : 'Show data details'}
+                      >
+                        {showDataDetails ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                            Hide Data Used in Analysis
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            Show Data Used in Analysis
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Detailed Data View */}
+                {showDataDetails && analysisData && (
+                  <div className="mt-6 pt-6 border-t border-gray-300">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-4">Exact Data Analyzed</h4>
+                    
+                    <div className="space-y-4">
+                      {/* Transcription Data */}
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                            Avoma Transcription ({analysisData.transcription.length.toLocaleString()} characters)
+                          </h5>
+                          <span className="text-xs text-gray-500">
+                            {Math.round(analysisData.transcription.length / 5)} words
+                          </span>
+                        </div>
+                        <div className="bg-white rounded border border-gray-200 p-3 max-h-64 overflow-y-auto">
+                          <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">
+                            {analysisData.transcriptionPreview}
+                            {analysisData.transcription.length > 500 && (
+                              <span className="text-gray-400 italic">
+                                {'\n\n[... ' + (analysisData.transcription.length - 500).toLocaleString() + ' more characters ...]'}
+                              </span>
+                            )}
+                          </pre>
+                        </div>
+                      </div>
+
+                      {/* Salesforce Context */}
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h5 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
+                          Salesforce Account Context
+                        </h5>
+                        <div className="bg-white rounded border border-gray-200 p-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                            {analysisData.salesforceContext.account_name && (
+                              <div>
+                                <span className="font-medium text-gray-600">Account:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.account_name}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.account_tier && (
+                              <div>
+                                <span className="font-medium text-gray-600">Tier:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.account_tier}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.contract_value && (
+                              <div>
+                                <span className="font-medium text-gray-600">Contract Value:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.contract_value}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.industry && (
+                              <div>
+                                <span className="font-medium text-gray-600">Industry:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.industry}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.annual_revenue && (
+                              <div>
+                                <span className="font-medium text-gray-600">Annual Revenue:</span>
+                                <span className="ml-2 text-gray-900">
+                                  ${analysisData.salesforceContext.annual_revenue.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.account_manager && (
+                              <div>
+                                <span className="font-medium text-gray-600">Account Manager:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.account_manager}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.total_cases_count !== undefined && (
+                              <div>
+                                <span className="font-medium text-gray-600">Support Cases:</span>
+                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.total_cases_count}</span>
+                              </div>
+                            )}
+                            {analysisData.salesforceContext.total_avoma_calls !== undefined && (
+                              <div>
+                                <span className="font-medium text-gray-600">Avoma Meetings:</span>
+                                <span className="ml-2 text-gray-900">
+                                  {analysisData.salesforceContext.ready_avoma_calls || 0} ready / {analysisData.salesforceContext.total_avoma_calls} total
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Recent Tickets */}
+                          {analysisData.salesforceContext.recent_tickets && 
+                           analysisData.salesforceContext.recent_tickets.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-200">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-gray-700">
+                                  Recent Support Cases ({analysisData.salesforceContext.recent_tickets.length})
+                                </span>
+                              </div>
+                              <div className="space-y-2">
+                                {analysisData.salesforceContext.recent_tickets.slice(0, 5).map((ticket, idx) => (
+                                  <div key={idx} className="text-xs bg-gray-50 rounded p-2">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium text-gray-900">{ticket.subject || 'No subject'}</span>
+                                      <span className="text-gray-500">{ticket.status || 'Unknown'}</span>
+                                    </div>
+                                    {ticket.priority && (
+                                      <div className="text-gray-600 mt-1">
+                                        Priority: <span className="font-medium">{ticket.priority}</span>
+                                        {ticket.created_date && (
+                                          <span className="ml-2 text-gray-500">
+                                            • {new Date(ticket.created_date).toLocaleDateString()}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {analysisData.salesforceContext.recent_tickets.length > 5 && (
+                                  <p className="text-xs text-gray-500 italic mt-2">
+                                    ... and {analysisData.salesforceContext.recent_tickets.length - 5} more case{analysisData.salesforceContext.recent_tickets.length - 5 !== 1 ? 's' : ''}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Data Summary Stats */}
+                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <h5 className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-2">
+                          Data Summary
+                        </h5>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                          <div>
+                            <div className="text-blue-600 font-medium">Transcription</div>
+                            <div className="text-blue-900">{analysisData.transcription.length.toLocaleString()} chars</div>
+                          </div>
+                          <div>
+                            <div className="text-blue-600 font-medium">Account Fields</div>
+                            <div className="text-blue-900">
+                              {Object.keys(analysisData.salesforceContext).filter(k => 
+                                !['recent_tickets', 'account_id'].includes(k) && 
+                                analysisData.salesforceContext[k] !== null
+                              ).length} provided
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-blue-600 font-medium">Support Cases</div>
+                            <div className="text-blue-900">
+                              {analysisData.salesforceContext.recent_tickets?.length || 0} cases
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-blue-600 font-medium">Total Context</div>
+                            <div className="text-blue-900">
+                              {(
+                                analysisData.transcription.length + 
+                                JSON.stringify(analysisData.salesforceContext).length
+                              ).toLocaleString()} chars
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
