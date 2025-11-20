@@ -25,7 +25,8 @@ LUCI now uses the same approach as SOW-Generator:
 Add the `salesforce_configs` table to your Supabase:
 
 1. Go to Supabase Dashboard → **SQL Editor**
-2. Run this SQL:
+2. Click **New query**
+3. Copy the contents of `supabase/migrations/002_add_salesforce_configs.sql` OR run this SQL:
 
 ```sql
 -- Salesforce configs table (same as SOW-Generator)
@@ -54,9 +55,15 @@ CREATE POLICY "Service role full access" ON salesforce_configs
 
 ### 2. Insert Salesforce Credentials
 
-In Supabase SQL Editor, run:
+**Good news!** The migration SQL (002_add_salesforce_configs.sql) will automatically insert your credentials if no active config exists.
+
+If you need to insert manually or update, run:
 
 ```sql
+-- First, deactivate any existing configs
+UPDATE salesforce_configs SET is_active = false WHERE is_active = true;
+
+-- Insert new config
 INSERT INTO salesforce_configs (username, password, security_token, login_url, is_active)
 VALUES (
   'sow.app.integration@leandata.com',
