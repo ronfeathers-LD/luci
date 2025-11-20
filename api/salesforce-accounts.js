@@ -2,7 +2,29 @@
  * Vercel Serverless Function for Salesforce Account Fetching
  * 
  * Fetches accounts from Salesforce assigned to a user based on their role
+ * Uses Supabase to store and retrieve account assignments
  */
+
+// Helper function to get Supabase client
+function getSupabaseClient() {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (supabaseUrl && supabaseServiceKey) {
+      return createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Supabase client not available:', error.message);
+  }
+  return null;
+}
 
 // Constants
 const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
@@ -38,92 +60,123 @@ export default async function handler(req, res) {
   }
 
   try {
-    // In a real implementation, you would:
-    // 1. Authenticate with Salesforce using stored credentials
-    // 2. Query Salesforce for accounts based on user role
-    // 3. Return the list of accounts
+    // Get Supabase client
+    const supabase = getSupabaseClient();
     
-    // Salesforce API credentials (should be in environment variables)
-    const sfdcInstanceUrl = process.env.SFDC_INSTANCE_URL;
-    const sfdcAccessToken = process.env.SFDC_ACCESS_TOKEN;
-    const sfdcClientId = process.env.SFDC_CLIENT_ID;
-    const sfdcClientSecret = process.env.SFDC_CLIENT_SECRET;
+    // Check if Supabase is configured
+    if (!supabase) {
+      // Fallback to mock data if Supabase not configured
+      console.warn('Supabase not configured, using mock data');
+      const mockAccounts = [
+        {
+          id: '001XX000004ABCD',
+          salesforceId: '001XX000004ABCD',
+          name: 'Acme Corp',
+          accountTier: 'Enterprise (Tier 1)',
+          contractValue: '$120,000/year',
+          ownerId: userId || 'mock-user-id',
+          ownerName: 'Sarah Johnson',
+          industry: 'Technology',
+          annualRevenue: 5000000,
+        },
+        {
+          id: '001XX000004EFGH',
+          salesforceId: '001XX000004EFGH',
+          name: 'TechStart Inc',
+          accountTier: 'Enterprise (Tier 2)',
+          contractValue: '$85,000/year',
+          ownerId: userId || 'mock-user-id',
+          ownerName: 'Sarah Johnson',
+          industry: 'Software',
+          annualRevenue: 2500000,
+        },
+      ];
 
-    // For now, we'll simulate the Salesforce API call
-    // TODO: Replace with actual Salesforce API integration
-    
-    // Mock Salesforce query based on user role
-    // In production, this would be a real SOQL query like:
-    // SELECT Id, Name, Account_Tier__c, Contract_Value__c 
-    // FROM Account 
-    // WHERE OwnerId IN (SELECT UserId FROM UserRole WHERE ...) 
-    // OR Id IN (SELECT AccountId FROM AccountTeamMember WHERE UserId = :userId)
-    
-    const mockAccounts = [
-      {
-        id: '001XX000004ABCD',
-        name: 'Acme Corp',
-        accountTier: 'Enterprise (Tier 1)',
-        contractValue: '$120,000/year',
-        ownerId: userId || 'mock-user-id',
-        ownerName: 'Sarah Johnson',
-        industry: 'Technology',
-        annualRevenue: 5000000,
-      },
-      {
-        id: '001XX000004EFGH',
-        name: 'TechStart Inc',
-        accountTier: 'Enterprise (Tier 2)',
-        contractValue: '$85,000/year',
-        ownerId: userId || 'mock-user-id',
-        ownerName: 'Sarah Johnson',
-        industry: 'Software',
-        annualRevenue: 2500000,
-      },
-      {
-        id: '001XX000004IJKL',
-        name: 'Global Solutions',
-        accountTier: 'Enterprise (Tier 1)',
-        contractValue: '$200,000/year',
-        ownerId: userId || 'mock-user-id',
-        ownerName: 'Sarah Johnson',
-        industry: 'Consulting',
-        annualRevenue: 10000000,
-      },
-    ];
-
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // In production, you would make the actual Salesforce API call:
-    /*
-    const response = await fetch(`${sfdcInstanceUrl}/services/data/v58.0/query?q=${encodeURIComponent(soqlQuery)}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${sfdcAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Salesforce API error: ${response.status}`);
+      return res.status(200).json({
+        accounts: mockAccounts,
+        total: mockAccounts.length,
+        userId: userId || email,
+        role: role || 'Account Manager',
+      });
     }
 
-    const data = await response.json();
-    const accounts = data.records.map(record => ({
-      id: record.Id,
-      name: record.Name,
-      accountTier: record.Account_Tier__c,
-      contractValue: record.Contract_Value__c,
-      // ... other fields
+    // First, get the user by userId or email
+    let user;
+    if (userId) {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (userError && userError.code !== 'PGRST116') {
+        throw userError;
+      }
+      user = userData;
+    } else if (email) {
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
+
+      if (userError && userError.code !== 'PGRST116') {
+        throw userError;
+      }
+      user = userData;
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Fetch accounts assigned to this user via user_accounts join table
+    const { data: userAccounts, error: userAccountsError } = await supabase
+      .from('user_accounts')
+      .select(`
+        account_id,
+        accounts (
+          id,
+          salesforce_id,
+          name,
+          account_tier,
+          contract_value,
+          industry,
+          annual_revenue,
+          owner_id,
+          owner_name
+        )
+      `)
+      .eq('user_id', user.id);
+
+    if (userAccountsError) {
+      console.error('Error fetching user accounts:', userAccountsError);
+      throw userAccountsError;
+    }
+
+    // Transform the data to match expected format
+    const accounts = (userAccounts || []).map(ua => ({
+      id: ua.accounts.salesforce_id || ua.accounts.id,
+      salesforceId: ua.accounts.salesforce_id,
+      name: ua.accounts.name,
+      accountTier: ua.accounts.account_tier,
+      contractValue: ua.accounts.contract_value,
+      industry: ua.accounts.industry,
+      annualRevenue: ua.accounts.annual_revenue ? parseFloat(ua.accounts.annual_revenue) : null,
+      ownerId: ua.accounts.owner_id,
+      ownerName: ua.accounts.owner_name,
     }));
-    */
+
+    // TODO: In production, you would also:
+    // 1. Sync accounts from Salesforce API periodically
+    // 2. Update the accounts table with latest Salesforce data
+    // 3. Maintain user_accounts relationships based on Salesforce sharing rules
 
     return res.status(200).json({
-      accounts: mockAccounts,
-      total: mockAccounts.length,
-      userId: userId || email,
-      role: role || 'Account Manager',
+      accounts: accounts,
+      total: accounts.length,
+      userId: user.id,
+      role: user.role || role || 'Account Manager',
     });
   } catch (error) {
     console.error('Error in salesforce-accounts function:', error);
