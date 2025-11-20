@@ -251,6 +251,39 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
 }
 
 /**
+ * Search for accounts in Salesforce by name
+ */
+async function searchSalesforceAccounts(conn, searchTerm) {
+  if (!searchTerm || searchTerm.trim().length < 2) {
+    return [];
+  }
+
+  const escapedSearch = escapeSOQL(searchTerm.trim());
+  
+  // Field selection - try custom fields first, fallback to standard
+  const customFields = `Id, Name, Account_Tier__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  
+  // Use LIKE for partial matching (case-insensitive)
+  let searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+  
+  try {
+    const result = await conn.query(searchQuery);
+    return result.records || [];
+  } catch (error) {
+    if (error.errorCode === 'INVALID_FIELD') {
+      // Retry with standard fields
+      searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
+      const result = await conn.query(searchQuery);
+      return result.records || [];
+    } else {
+      console.error('Error searching accounts:', error);
+      throw error;
+    }
+  }
+}
+
+/**
  * Sync accounts from Salesforce to Supabase
  */
 async function syncAccountsToSupabase(supabase, sfdcAccounts, userId) {
@@ -424,11 +457,14 @@ export default async function handler(req, res) {
     return res.status(413).json({ error: 'Request too large' });
   }
 
-  const { userId, email, role, forceRefresh } = req.query;
+  const { userId, email, role, forceRefresh, search } = req.query;
 
-  // Validate input
-  if (!userId && !email) {
-    return res.status(400).json({ error: 'Missing required parameter: userId or email' });
+  // Check if this is a search request
+  const isSearch = search && search.trim().length >= 2;
+  
+  // Validate input (skip validation for search requests)
+  if (!isSearch && !userId && !email) {
+    return res.status(400).json({ error: 'Missing required parameter: userId or email (or search term)' });
   }
   
   // Check if we should force refresh (bypass cache)
@@ -446,6 +482,49 @@ export default async function handler(req, res) {
         message: 'The application database is not properly configured. Please contact your administrator.',
       });
     }
+    
+    // Handle search request (bypasses user assignment logic)
+    if (isSearch) {
+      try {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Searching Salesforce for: ${search}`);
+        }
+        const sfdcAuth = await authenticateSalesforce(supabase);
+        const searchResults = await searchSalesforceAccounts(sfdcAuth.connection, search);
+        
+        // Sync search results to Supabase (for caching) - userId is optional for search
+        const syncedAccounts = await syncAccountsToSupabase(supabase, searchResults, userId || null);
+        
+        const accounts = syncedAccounts.map(acc => ({
+          id: acc.salesforce_id || acc.id,
+          salesforceId: acc.salesforce_id,
+          name: acc.name,
+          accountTier: acc.account_tier,
+          contractValue: acc.contract_value,
+          industry: acc.industry,
+          annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
+          ownerId: acc.owner_id,
+          ownerName: acc.owner_name,
+          lastSyncedAt: acc.last_synced_at,
+        }));
+        
+        return res.status(200).json({
+          accounts: accounts,
+          total: accounts.length,
+          searchTerm: search,
+          isSearch: true,
+        });
+      } catch (searchError) {
+        console.error('Salesforce search error:', searchError);
+        return res.status(500).json({
+          error: 'Failed to search accounts',
+          details: process.env.NODE_ENV === 'production' ? undefined : searchError.message,
+        });
+      }
+    }
+    
+    // Regular flow: get user's assigned accounts
+    // First, get the user by userId or email
 
     // First, get the user by userId or email
     let user;
