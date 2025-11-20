@@ -1,0 +1,14 @@
+{
+  "name": "luci",
+  "version": "1.0.0",
+  "description": "Customer Pulse Dashboard - Sentiment Analyzer",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/input.css -o ./dist/output.css --minify",
+    "build:html": "node build.js",
+    "build": "npm run build:css && npm run build:html"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  }
+}
+
