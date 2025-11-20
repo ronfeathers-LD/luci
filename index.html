@@ -611,12 +611,23 @@
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-                {/* Search Section */}
-                <div className="mb-6">
-                  <label htmlFor="account-search" className="block text-sm font-medium text-gray-700 mb-2">
-                    {isSearchMode ? 'Search Results' : 'Search for Any Account'}
-                  </label>
+              <>
+                {/* Search Section - Always Visible */}
+                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <label htmlFor="account-search" className="block text-sm font-semibold text-gray-900">
+                      {isSearchMode ? '🔍 Search Results' : '🔍 Search for Any Account'}
+                    </label>
+                    {isSearchMode && (
+                      <button
+                        onClick={handleClearSearch}
+                        className="text-sm text-blue-600 hover:text-blue-800 underline"
+                        aria-label="Clear search and show assigned accounts"
+                      >
+                        Show My Accounts
+                      </button>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <input
                       id="account-search"
@@ -628,14 +639,14 @@
                           handleSearch(searchTerm);
                         }
                       }}
-                      placeholder="Enter account name (min 2 characters)..."
-                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                      placeholder="Type account name to search (min 2 characters)..."
+                      className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                       aria-label="Search for Salesforce account"
                     />
                     <button
                       onClick={() => handleSearch(searchTerm)}
                       disabled={isSearching || !searchTerm || searchTerm.trim().length < 2}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium shadow-md"
                       aria-label="Search accounts"
                     >
                       {isSearching ? (
@@ -644,24 +655,16 @@
                         'Search'
                       )}
                     </button>
-                    {isSearchMode && (
-                      <button
-                        onClick={handleClearSearch}
-                        className="px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-                        aria-label="Clear search and show assigned accounts"
-                      >
-                        Clear
-                      </button>
-                    )}
                   </div>
                   {isSearchMode && (
                     <p className="text-xs text-gray-500 mt-2">
-                      Showing search results. Click "Clear" to return to your assigned accounts.
+                      Showing search results. Click "Show My Accounts" to return to your assigned accounts.
                     </p>
                   )}
                 </div>
 
                 {/* Account Selection */}
+                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
                 {accounts.length > 0 ? (
                   <>
                     <label htmlFor="account-select" className="block text-sm font-medium text-gray-700 mb-2">
@@ -717,7 +720,8 @@
                     </div>
                   </div>
                 )}
-              </div>
+                </div>
+              </>
             )}
 
             {/* Input Section */}
