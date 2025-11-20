@@ -49,14 +49,30 @@ async function authenticateSalesforce(supabase) {
     .eq('is_active', true)
     .single();
 
-  if (configError || !config) {
-    throw new Error('Salesforce configuration not found in Supabase. Please configure it in the admin panel.');
+  if (configError) {
+    console.error('Error fetching Salesforce config:', configError);
+    throw new Error(`Error fetching Salesforce config: ${configError.message}`);
   }
+  
+  if (!config) {
+    console.error('No active Salesforce configuration found in salesforce_configs table');
+    throw new Error('Salesforce configuration not found in Supabase. Please insert credentials into salesforce_configs table.');
+  }
+  
+  console.log('Salesforce config found:', {
+    username: config.username,
+    login_url: config.login_url,
+    has_password: !!config.password,
+    has_security_token: !!config.security_token,
+  });
 
   const jsforce = getJsforceClient();
   if (!jsforce) {
-    throw new Error('jsforce library not available');
+    console.error('jsforce library not available - check if jsforce is installed');
+    throw new Error('jsforce library not available. Make sure jsforce is installed: npm install jsforce');
   }
+  
+  console.log('jsforce library loaded successfully');
 
   // Clean login URL (handle custom domains like leandata.my.salesforce.com)
   let loginUrl = config.login_url || 'https://login.salesforce.com';
@@ -365,18 +381,25 @@ export default async function handler(req, res) {
     // Try to authenticate with Salesforce and fetch fresh data
     let accounts = [];
     let useCached = false;
+    let errorDetails = null;
 
     try {
+      console.log('Attempting Salesforce authentication...');
       const sfdcAuth = await authenticateSalesforce(supabase);
+      console.log('Salesforce authenticated successfully');
+      
+      console.log('Querying Salesforce accounts...');
       const sfdcAccounts = await querySalesforceAccounts(
         sfdcAuth.connection,
         user.id,
         user.email,
         user.role || role
       );
+      console.log(`Found ${sfdcAccounts.length} accounts in Salesforce`);
 
       // Sync accounts to Supabase
       const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
+      console.log(`Synced ${syncedAccounts.length} accounts to Supabase`);
 
       // Transform to expected format
       accounts = syncedAccounts.map(acc => ({
@@ -392,16 +415,35 @@ export default async function handler(req, res) {
       }));
     } catch (sfdcError) {
       console.error('Salesforce API error:', sfdcError);
+      errorDetails = {
+        message: sfdcError.message,
+        stack: process.env.NODE_ENV === 'production' ? undefined : sfdcError.stack,
+      };
+      
       // Fallback to cached accounts from Supabase
-      const cachedAccounts = await getCachedAccounts(supabase, user.id, user.email, user.role);
-      if (cachedAccounts && cachedAccounts.length > 0) {
-        accounts = cachedAccounts;
-        useCached = true;
-      } else {
-        // No cached accounts, return error
+      console.log('Falling back to cached accounts...');
+      try {
+        const cachedAccounts = await getCachedAccounts(supabase, user.id, user.email, user.role);
+        if (cachedAccounts && cachedAccounts.length > 0) {
+          accounts = cachedAccounts;
+          useCached = true;
+          console.log(`Using ${cachedAccounts.length} cached accounts`);
+        } else {
+          // No cached accounts, return error with details
+          return res.status(500).json({
+            error: 'Failed to fetch accounts from Salesforce and no cached accounts available',
+            details: process.env.NODE_ENV === 'production' 
+              ? 'Check server logs for details' 
+              : errorDetails,
+          });
+        }
+      } catch (cacheError) {
+        console.error('Error fetching cached accounts:', cacheError);
         return res.status(500).json({
-          error: 'Failed to fetch accounts from Salesforce and no cached accounts available',
-          details: process.env.NODE_ENV === 'production' ? undefined : sfdcError.message,
+          error: 'Failed to fetch accounts from Salesforce and error fetching cached accounts',
+          details: process.env.NODE_ENV === 'production' 
+            ? 'Check server logs for details' 
+            : { sfdcError: errorDetails, cacheError: cacheError.message },
         });
       }
     }
@@ -423,10 +465,16 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Error in salesforce-accounts function:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({ 
-      error: process.env.NODE_ENV === 'production' 
-        ? 'Failed to fetch accounts from Salesforce' 
-        : error.message 
+      error: 'Failed to fetch accounts from Salesforce',
+      details: process.env.NODE_ENV === 'production' 
+        ? 'Check server logs for details' 
+        : {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+          }
     });
   }
 }
