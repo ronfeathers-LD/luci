@@ -52,6 +52,34 @@
     // Production check
     const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
     
+    // Helper function to format currency as US dollars
+    const formatCurrency = (value) => {
+      if (!value || value === 'N/A' || value === null || value === undefined) {
+        return 'N/A';
+      }
+      
+      // If it's already a formatted string with $, return as is
+      if (typeof value === 'string' && value.includes('$')) {
+        return value;
+      }
+      
+      // Convert to number if it's a string
+      const numValue = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.-]/g, '')) : value;
+      
+      // Check if it's a valid number
+      if (isNaN(numValue)) {
+        return value; // Return original if not a number
+      }
+      
+      // Format as US currency
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(numValue);
+    };
+    
     // Console logging helper (disabled in production)
     const log = (...args) => {
       if (!isProduction) {
@@ -1040,7 +1068,7 @@
                   </div>
                   <div>
                     <span className="text-gray-600">Contract Value:</span>
-                    <span className="ml-2 font-medium text-gray-900">{selectedAccount.contractValue || 'N/A'}</span>
+                    <span className="ml-2 font-medium text-gray-900">{formatCurrency(selectedAccount.contractValue)}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">Industry:</span>
@@ -1401,7 +1429,7 @@
                             {analysisData.salesforceContext.contract_value && (
                               <div>
                                 <span className="font-medium text-gray-600">Contract Value:</span>
-                                <span className="ml-2 text-gray-900">{analysisData.salesforceContext.contract_value}</span>
+                                <span className="ml-2 text-gray-900">{formatCurrency(analysisData.salesforceContext.contract_value)}</span>
                               </div>
                             )}
                             {analysisData.salesforceContext.industry && (
