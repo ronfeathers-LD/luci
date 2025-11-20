@@ -34,37 +34,31 @@ This document lists all mock data currently in use and their purposes.
 
 ## 3. Salesforce Accounts Mock (API Fallback)
 
-**Location:** `api/salesforce-accounts.js` (lines ~443-473)
+**Location:** `api/salesforce-accounts.js`
 
 **Purpose:** Fallback when Supabase is not configured
 
-**Current Implementation:**
-- Returns 2 hardcoded accounts (Acme Corp, TechStart Inc)
-- Only used if Supabase environment variables are missing
+**Status:** ✅ **REMOVED** - Now returns proper error message
 
-**Status:** ✅ **Fallback Only** - Only used in development/testing
-
-**Action Required:**
-- Keep as fallback for development
-- Consider removing in production (should fail gracefully instead)
+**Implementation:**
+- Returns 503 status with error message
+- Alerts user: "Database not configured. Please contact your administrator."
+- No mock data returned
 
 ---
 
 ## 4. User Mock (API Fallback)
 
-**Location:** `api/users.js` (lines ~58-70, ~120-126)
+**Location:** `api/users.js`
 
 **Purpose:** Fallback when Supabase is not configured
 
-**Current Implementation:**
-- Returns mock user data
-- Only used if Supabase environment variables are missing
+**Status:** ✅ **REMOVED** - Now returns proper error message
 
-**Status:** ✅ **Fallback Only** - Only used in development/testing
-
-**Action Required:**
-- Keep as fallback for development
-- Consider removing in production (should fail gracefully instead)
+**Implementation:**
+- Returns 503 status with error message
+- Alerts user: "Database not configured. Please contact your administrator."
+- No mock data returned
 
 ---
 
