@@ -5,8 +5,47 @@ This guide will help you set up Salesforce API integration for the LUCI applicat
 ## Prerequisites
 
 1. A Salesforce org (Production, Sandbox, or Developer Edition)
-2. Admin access to create a Connected App
+2. Admin access to create a Connected App (or existing Connected App credentials)
 3. A user account for API access
+
+## Option A: Use Existing Connected App Credentials
+
+If you already have a Connected App set up for another integration, you can reuse those credentials!
+
+### What You Need
+
+1. **Consumer Key** (also called Client ID)
+2. **Consumer Secret** (also called Client Secret)
+
+### How to Find Your Existing Credentials
+
+1. Log in to your Salesforce org
+2. Go to **Setup** → **App Manager**
+3. Find your existing Connected App
+4. Click the dropdown arrow → **View**
+5. Click **Manage Consumer Details**
+6. Copy:
+   - **Consumer Key** → This is your `SFDC_CLIENT_ID`
+   - **Consumer Secret** → Click "Click to reveal" → This is your `SFDC_CLIENT_SECRET`
+
+### Important Notes
+
+- ✅ **You can reuse credentials** - Multiple apps can use the same Connected App
+- ✅ **No changes needed** - Your existing Connected App will work as-is
+- ⚠️ **OAuth Scopes** - Make sure your Connected App has these scopes enabled:
+  - `Full access (full)` OR `Access and manage your data (api)`
+  - `Perform requests on your behalf at any time (refresh_token, offline_access)`
+- ⚠️ **IP Restrictions** - If your Connected App has IP restrictions, make sure Vercel's IPs are allowed (or use security tokens)
+
+### Skip to Step 4
+
+If using existing credentials, you can skip to **Step 4: Get User Credentials** below.
+
+---
+
+## Option B: Create a New Connected App
+
+If you prefer to create a dedicated Connected App for LUCI:
 
 ## Step 1: Create a Connected App in Salesforce
 
@@ -37,6 +76,8 @@ This guide will help you set up Salesforce API integration for the LUCI applicat
    - **Consumer Secret** (this is your `SFDC_CLIENT_SECRET`) - Click "Click to reveal" to see it
 4. Save these securely - you'll need them for environment variables
 
+---
+
 ## Step 3: Create API User (Recommended)
 
 For security, create a dedicated user for API access:
@@ -55,6 +96,8 @@ For security, create a dedicated user for API access:
 7. Click **Reset Security Token**
 8. Check the email for the security token (you'll need this)
 
+---
+
 ## Step 4: Get User Credentials
 
 You'll need:
@@ -64,11 +107,15 @@ You'll need:
 
 **Note**: If you're using a Sandbox, the username format is: `username@sandbox-name.sandbox`
 
+---
+
 ## Step 5: Determine Login URL
 
 - **Production**: `https://login.salesforce.com`
 - **Sandbox**: `https://test.salesforce.com`
 - **Custom Domain**: Your custom Salesforce domain URL
+
+---
 
 ## Step 6: Set Environment Variables in Vercel
 
@@ -87,6 +134,8 @@ You'll need:
 
 4. Click **Save** for each variable
 5. **Important**: Redeploy your application for environment variables to take effect
+
+---
 
 ## Step 7: Verify Salesforce Fields
 
@@ -110,6 +159,8 @@ The integration expects these fields on the Account object:
    - **Contract_Value__c**: Text (255) - e.g., "$120,000/year"
 4. Add fields to Account page layouts
 
+---
+
 ## Step 8: Test the Integration
 
 1. Deploy your application to Vercel
@@ -119,6 +170,8 @@ The integration expects these fields on the Account object:
    - Query accounts based on your user's role
    - Sync accounts to Supabase
    - Display accounts in the dropdown
+
+---
 
 ## Troubleshooting
 
@@ -153,6 +206,25 @@ The integration expects these fields on the Account object:
 - Custom fields might not exist in your org
 - Field API names might be different
 - Check field-level security
+
+---
+
+## Using Existing Connected App - Quick Reference
+
+If you're reusing existing credentials, here's what you need:
+
+| Environment Variable | Where to Find It |
+|---------------------|------------------|
+| `SFDC_CLIENT_ID` | Connected App → Manage Consumer Details → Consumer Key |
+| `SFDC_CLIENT_SECRET` | Connected App → Manage Consumer Details → Consumer Secret (click to reveal) |
+| `SFDC_USERNAME` | Your API user's username |
+| `SFDC_PASSWORD` | Your API user's password |
+| `SFDC_SECURITY_TOKEN` | From "Reset Security Token" email (if using IP restrictions) |
+| `SFDC_LOGIN_URL` | `https://login.salesforce.com` (production) or `https://test.salesforce.com` (sandbox) |
+
+**That's it!** No need to create a new Connected App if you already have one.
+
+---
 
 ## SOQL Query Customization
 
