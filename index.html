@@ -96,7 +96,7 @@
       }
     };
 
-    // Fetch Salesforce customer context (using real account data)
+    // Fetch Salesforce customer context (using real account data + cases)
     const fetchSalesforceData = async (customerIdentifier, accountData = null) => {
       // Use account data if provided, otherwise return minimal context
       if (!accountData) {
@@ -107,7 +107,28 @@
         };
       }
       
-      // Return real Salesforce account data
+      // Fetch recent cases/tickets for the account
+      let recentCases = [];
+      if (accountData.salesforceId || accountData.id) {
+        try {
+          const salesforceAccountId = accountData.salesforceId || accountData.id;
+          const params = new URLSearchParams({
+            salesforceAccountId: salesforceAccountId,
+            accountId: accountData.id,
+          });
+          
+          const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
+          if (casesResponse.ok) {
+            const casesData = await casesResponse.json();
+            recentCases = casesData.cases || [];
+          }
+        } catch (err) {
+          logError('Error fetching cases:', err);
+          // Continue without cases - not critical
+        }
+      }
+      
+      // Return real Salesforce account data with cases
       return {
         account_tier: accountData.accountTier || null,
         contract_value: accountData.contractValue || null,
@@ -116,6 +137,13 @@
         industry: accountData.industry || null,
         annual_revenue: accountData.annualRevenue || null,
         account_manager: accountData.ownerName || null,
+        recent_tickets: recentCases.map(c => ({
+          id: c.caseNumber || c.id,
+          subject: c.subject,
+          status: c.status,
+          created_date: c.createdDate,
+          priority: c.priority,
+        })),
       };
     };
 
