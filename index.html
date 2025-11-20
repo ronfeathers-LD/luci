@@ -530,6 +530,7 @@
       const handleAnalyze = useCallback(async (attempt = 0) => {
         setLoading(true);
         setError(null);
+        setCasesLoading(true);
         if (attempt === 0) {
           setSentiment(null);
         }
@@ -540,6 +541,9 @@
             fetchAvomaData(customerIdentifier, selectedAccount?.salesforceId || selectedAccount?.id),
             fetchSalesforceData(customerIdentifier, selectedAccount)
           ]);
+          
+          // Cases are already set in fetchSalesforceData, just update loading state
+          setCasesLoading(false);
 
           // Extract transcription and meeting counts
           const transcription = avomaData.transcription || '';
