@@ -439,7 +439,7 @@
                                     ? accountData.id : null);
         
         if (!salesforceAccountId) {
-          if (process.env.NODE_ENV !== 'production') {
+          if (!isProduction) {
             console.warn('Cannot fetch cases: No valid Salesforce Account ID found', { 
               accountData,
               hasSalesforceId: !!accountData.salesforceId,
@@ -463,7 +463,7 @@
             const casesData = await casesResponse.json();
             const fetchedCases = casesData.cases || [];
             setCases(fetchedCases);
-            if (process.env.NODE_ENV !== 'production') {
+            if (!isProduction) {
               console.log(`Fetched ${fetchedCases.length} cases for account: ${salesforceAccountId}`);
             }
           } else {
