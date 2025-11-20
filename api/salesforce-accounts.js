@@ -129,8 +129,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // Field selection - try custom fields first, fallback to standard
   // Using Employee_Band__c for Account Segment (Tier) - confirmed API name
   // Using Expiring_Revenue__c for Contract Value (Expiring ARR) - confirmed API name
-  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
-  const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Type is a standard field used to filter out "Former Customer" accounts
+  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  const standardFields = `Id, Name, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   let useCustomFields = true;
   let allAccounts = [];
@@ -138,10 +139,10 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
     // Query 1: Accounts owned by user (by Owner.Email)
-    // Filter by IsActive = true to exclude inactive/closed accounts
+    // Filter by Type != 'Former Customer' to exclude former customers
     try {
       const escapedEmail = escapeSOQL(userEmail);
-      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
+      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND Type != 'Former Customer' ORDER BY Name LIMIT 100`;
       
       try {
         const ownerResult = await conn.query(ownerQuery);
@@ -164,12 +165,12 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
               });
             }
             
-            // Check if error is about IsActive field
-            const isActiveError = error.message && error.message.includes('IsActive');
+            // Check if error is about Type field
+            const typeError = error.message && error.message.includes('Type');
             
-            if (isActiveError) {
-              // IsActive field doesn't exist - retry without it
-              console.warn('IsActive field not found on Account, querying without status filter');
+            if (typeError) {
+              // Type field doesn't exist or has issues - retry without filter
+              console.warn('Type field issue on Account, querying without Type filter');
               try {
                 ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                 const ownerResult = await conn.query(ownerQuery);
@@ -178,7 +179,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                     accountMap.set(acc.Id, acc);
                   });
                   if (process.env.NODE_ENV !== 'production') {
-                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (without IsActive filter)`);
+                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (without Type filter)`);
                   }
                 }
               } catch (retryError) {
@@ -219,13 +220,13 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                 }
               }
             } else {
-              // Not an IsActive error, try alternative field names
+              // Not a Type error, try alternative field names
               console.warn('Custom fields not found, trying alternative field names...');
               
               // Try alternative field names (including Employee_Band__c for tier)
-              const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+              const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
               try {
-                ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
+                ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND Type != 'Former Customer' ORDER BY Name LIMIT 100`;
                 const altResult = await conn.query(ownerQuery);
                 if (altResult.records) {
                   altResult.records.forEach(acc => {
@@ -236,9 +237,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                   }
                 }
               } catch (altError) {
-                // If alternative fields also fail, check if it's IsActive error
-                if (altError.errorCode === 'INVALID_FIELD' && altError.message && altError.message.includes('IsActive')) {
-                  console.warn('IsActive field not found, retrying without status filter');
+                // If alternative fields also fail, check if it's Type error
+                if (altError.errorCode === 'INVALID_FIELD' && altError.message && altError.message.includes('Type')) {
+                  console.warn('Type field not found, retrying without Type filter');
                   ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                   const altResult = await conn.query(ownerQuery);
                   if (altResult.records) {
@@ -249,22 +250,22 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                 } else {
                   // If alternative fields also fail, fall back to standard fields
                   console.warn('Alternative custom fields also not found, using standard fields only');
-                  useCustomFields = false;
-                  ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND IsActive = true ORDER BY Name LIMIT 100`;
-                  try {
-                    const ownerResult = await conn.query(ownerQuery);
-                    if (ownerResult.records) {
-                      ownerResult.records.forEach(acc => {
-                        accountMap.set(acc.Id, acc);
-                      });
-                      if (process.env.NODE_ENV !== 'production') {
-                        console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
-                      }
-                    }
-                  } catch (stdError) {
-                    // Last resort: standard fields without IsActive
-                    if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('IsActive')) {
-                      ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+              useCustomFields = false;
+              ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND Type != 'Former Customer' ORDER BY Name LIMIT 100`;
+              try {
+                const ownerResult = await conn.query(ownerQuery);
+                if (ownerResult.records) {
+                  ownerResult.records.forEach(acc => {
+                    accountMap.set(acc.Id, acc);
+                  });
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
+                  }
+                }
+              } catch (stdError) {
+                // Last resort: standard fields without Type filter
+                if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('Type')) {
+                  ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                       const ownerResult = await conn.query(ownerQuery);
                       if (ownerResult.records) {
                         ownerResult.records.forEach(acc => {
@@ -301,10 +302,10 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           
           // Query accounts by IDs (Salesforce allows up to 200 IDs in IN clause)
           // Escape IDs to prevent injection (though IDs are typically safe)
-          // Filter by IsActive = true to exclude inactive/closed accounts
+          // Filter by Type != 'Former Customer' to exclude former customers
           const fields = useCustomFields ? customFields : standardFields;
           const idsString = accountIds.map(id => `'${escapeSOQL(id)}'`).join(',');
-          const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) AND IsActive = true ORDER BY Name`;
+          const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) AND Type != 'Former Customer' ORDER BY Name`;
           
           try {
             const accountResult = await conn.query(accountQuery);
@@ -319,7 +320,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           } catch (error) {
             if (error.errorCode === 'INVALID_FIELD' && useCustomFields) {
               // Retry with standard fields
-              const standardAccountQuery = `SELECT ${standardFields} FROM Account WHERE Id IN (${idsString}) AND IsActive = true ORDER BY Name`;
+              const standardAccountQuery = `SELECT ${standardFields} FROM Account WHERE Id IN (${idsString}) AND Type != 'Former Customer' ORDER BY Name`;
               const accountResult = await conn.query(standardAccountQuery);
               if (accountResult.records) {
                 accountResult.records.forEach(acc => {
@@ -341,16 +342,16 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
     
   } else {
     // For admins or other roles, get all accounts
-    // Filter by IsActive = true to exclude inactive/closed accounts
+    // Filter by Type != 'Former Customer' to exclude former customers
     try {
-      let adminQuery = `SELECT ${customFields} FROM Account WHERE IsActive = true ORDER BY Name LIMIT 100`;
+      let adminQuery = `SELECT ${customFields} FROM Account WHERE Type != 'Former Customer' ORDER BY Name LIMIT 100`;
       try {
         const result = await conn.query(adminQuery);
         allAccounts = result.records || [];
       } catch (error) {
         if (error.errorCode === 'INVALID_FIELD') {
           console.warn('Custom fields not found, using standard fields only');
-          adminQuery = `SELECT ${standardFields} FROM Account WHERE IsActive = true ORDER BY Name LIMIT 100`;
+          adminQuery = `SELECT ${standardFields} FROM Account WHERE Type != 'Former Customer' ORDER BY Name LIMIT 100`;
           const result = await conn.query(adminQuery);
           allAccounts = result.records || [];
         } else {
@@ -418,24 +419,25 @@ async function searchSalesforceAccounts(conn, searchTerm) {
   // Field selection - try custom fields first, fallback to standard
   // Using Employee_Band__c for Account Segment (Tier) - confirmed API name
   // Using Expiring_Revenue__c for Contract Value (Expiring ARR) - confirmed API name
-  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
-  const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Type is a standard field used to filter out "Former Customer" accounts
+  const customFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  const standardFields = `Id, Name, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   // Use LIKE for partial matching (case-insensitive)
-  // Filter by IsActive = true to exclude inactive/closed accounts
-  let searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
+  // Filter by Type != 'Former Customer' to exclude former customers
+  let searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND Type != 'Former Customer' ORDER BY Name LIMIT 20`;
   
   try {
     const result = await conn.query(searchQuery);
     return result.records || [];
   } catch (error) {
     if (error.errorCode === 'INVALID_FIELD') {
-      // Check if error is about IsActive field
-      const isActiveError = error.message && error.message.includes('IsActive');
+      // Check if error is about Type field
+      const typeError = error.message && error.message.includes('Type');
       
-      if (isActiveError) {
-        // IsActive field doesn't exist - retry without it
-        console.warn('IsActive field not found on Account, searching without status filter');
+      if (typeError) {
+        // Type field doesn't exist or has issues - retry without filter
+        console.warn('Type field issue on Account, searching without Type filter');
         try {
           searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
           const result = await conn.query(searchQuery);
@@ -443,7 +445,7 @@ async function searchSalesforceAccounts(conn, searchTerm) {
         } catch (retryError) {
           // If still fails, might be custom fields issue
           if (retryError.errorCode === 'INVALID_FIELD') {
-            // Retry with standard fields (without IsActive)
+            // Retry with standard fields (without Type filter)
             searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
             const result = await conn.query(searchQuery);
             return result.records || [];
@@ -452,15 +454,15 @@ async function searchSalesforceAccounts(conn, searchTerm) {
           }
         }
       } else {
-        // Not an IsActive error, try standard fields with IsActive
+        // Not a Type error, try standard fields with Type filter
         try {
-          searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND IsActive = true ORDER BY Name LIMIT 20`;
+          searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' AND Type != 'Former Customer' ORDER BY Name LIMIT 20`;
           const result = await conn.query(searchQuery);
           return result.records || [];
         } catch (stdError) {
-          // If standard fields with IsActive fails, check if it's IsActive error
-          if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('IsActive')) {
-            // Last resort: standard fields without IsActive
+          // If standard fields with Type filter fails, check if it's Type error
+          if (stdError.errorCode === 'INVALID_FIELD' && stdError.message && stdError.message.includes('Type')) {
+            // Last resort: standard fields without Type filter
             searchQuery = `SELECT ${standardFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
             const result = await conn.query(searchQuery);
             return result.records || [];
