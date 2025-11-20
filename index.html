@@ -100,6 +100,38 @@
       }
     };
 
+    // Fetch cases for an account (can be called independently)
+    const fetchCasesForAccount = async (accountData) => {
+      if (!accountData || (!accountData.salesforceId && !accountData.id)) {
+        setCases([]);
+        setCasesLoading(false);
+        return;
+      }
+
+      setCasesLoading(true);
+      try {
+        const salesforceAccountId = accountData.salesforceId || accountData.id;
+        const params = new URLSearchParams({
+          salesforceAccountId: salesforceAccountId,
+          accountId: accountData.id,
+        });
+        
+        const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
+        if (casesResponse.ok) {
+          const casesData = await casesResponse.json();
+          const fetchedCases = casesData.cases || [];
+          setCases(fetchedCases);
+        } else {
+          setCases([]);
+        }
+      } catch (err) {
+        logError('Error fetching cases:', err);
+        setCases([]);
+      } finally {
+        setCasesLoading(false);
+      }
+    };
+
     // Fetch Salesforce customer context (using real account data + cases)
     const fetchSalesforceData = async (customerIdentifier, accountData = null) => {
       // Use account data if provided, otherwise return minimal context
@@ -763,6 +795,12 @@
                           const account = accounts.find(acc => acc.id === e.target.value);
                           setSelectedAccount(account);
                           setCustomerIdentifier(account?.name || '');
+                          // Fetch cases when account is selected
+                          if (account) {
+                            fetchCasesForAccount(account);
+                          } else {
+                            setCases([]);
+                          }
                         }}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                         aria-label="Select from search results"
