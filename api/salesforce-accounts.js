@@ -127,8 +127,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   }
   
   // Field selection - try custom fields first, fallback to standard
-  // Using Account_Segment__c (formula field) for Tier instead of Account_Tier__c
-  const customFields = `Id, Name, Account_Segment__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Employee_Band__c for Account Segment (Tier) - matches SOW-Generator
+  // Using Expiring_ARR__c for Contract Value (Expiring ARR) - field name to be confirmed
+  const customFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   let useCustomFields = true;
@@ -155,8 +156,8 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           if (error.errorCode === 'INVALID_FIELD') {
             console.warn('Custom fields not found, trying alternative field names...');
             
-            // Try alternative field names (including Account_Segment__c for tier)
-            const altCustomFields = `Id, Name, Account_Segment__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+            // Try alternative field names (including Employee_Band__c for tier)
+            const altCustomFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
             try {
               ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
               const altResult = await conn.query(ownerQuery);
@@ -319,8 +320,9 @@ async function searchSalesforceAccounts(conn, searchTerm) {
   const escapedSearch = escapeSOQL(searchTerm.trim());
   
   // Field selection - try custom fields first, fallback to standard
-  // Using Account_Segment__c (formula field) for Tier instead of Account_Tier__c
-  const customFields = `Id, Name, Account_Segment__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Employee_Band__c for Account Segment (Tier) - matches SOW-Generator
+  // Using Expiring_ARR__c for Contract Value (Expiring ARR) - field name to be confirmed
+  const customFields = `Id, Name, Employee_Band__c, Expiring_ARR__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   // Use LIKE for partial matching (case-insensitive)
@@ -360,15 +362,20 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
     // Upsert account in Supabase
     // Handle custom fields that may not exist (they'll be undefined)
     // Try multiple possible field names for tier and contract value
-    // Primary: Account_Segment__c (formula field for Account Segment)
-    const accountTier = sfdcAccount.Account_Segment__c
+    // Primary: Employee_Band__c (Account Segment - matches SOW-Generator)
+    const accountTier = sfdcAccount.Employee_Band__c
+      || sfdcAccount.Account_Segment__c
       || sfdcAccount.Account_Tier__c 
       || sfdcAccount.Tier__c 
       || sfdcAccount.AccountTier__c
       || sfdcAccount.Tier
       || null;
     
-    const contractValue = sfdcAccount.Contract_Value__c
+    // Primary: Expiring_ARR__c (Expiring ARR - field name to be confirmed)
+    const contractValue = sfdcAccount.Expiring_ARR__c
+      || sfdcAccount.ExpiringARR__c
+      || sfdcAccount.ARR_Expiring__c
+      || sfdcAccount.Contract_Value__c
       || sfdcAccount.ContractValue__c
       || sfdcAccount.Contract_Value
       || sfdcAccount.ContractValue
@@ -379,8 +386,8 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
         console.log('Sample account fields:', {
           Id: sfdcAccount.Id,
           Name: sfdcAccount.Name,
-          'Account_Segment__c': sfdcAccount.Account_Segment__c,
-          'Contract_Value__c': sfdcAccount.Contract_Value__c,
+          'Employee_Band__c': sfdcAccount.Employee_Band__c,
+          'Expiring_ARR__c': sfdcAccount.Expiring_ARR__c,
           'All fields': Object.keys(sfdcAccount),
         });
       }
