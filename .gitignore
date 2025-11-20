@@ -13,7 +13,6 @@ node_modules/
 dist/
 build/
 .vercel
-node_modules/
 
 # IDE
 .vscode/
