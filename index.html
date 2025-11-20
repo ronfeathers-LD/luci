@@ -183,26 +183,51 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         }
       }, [onSignIn]);
 
-      // Initialize Google Sign-In (only once)
+      // Wait for Google Identity Services to load and initialize
       useEffect(() => {
-        if (window.google && window.google.accounts && window.google.accounts.id) {
-          try {
-            window.google.accounts.id.initialize({
-              client_id: GOOGLE_CLIENT_ID,
-              callback: handleCredentialResponse,
-            });
-          } catch (err) {
-            console.error('Error initializing Google Sign-In:', err);
-            setError('Failed to initialize sign-in. Please refresh the page.');
-            setIsLoading(false);
-          }
-        }
-      }, [handleCredentialResponse]);
+        let isMounted = true;
+        let initAttempts = 0;
+        const maxInitAttempts = 100; // 10 seconds max
 
-      // Render button when ref is ready
-      useEffect(() => {
+        const waitForGoogleAndInit = () => {
+          initAttempts++;
+          
+          if (window.google && window.google.accounts && window.google.accounts.id) {
+            try {
+              // Initialize Google Sign-In
+              window.google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleCredentialResponse,
+              });
+              console.log('Google Sign-In initialized successfully');
+              
+              // Now try to render the button
+              if (isMounted) {
+                renderButton();
+              }
+            } catch (err) {
+              console.error('Error initializing Google Sign-In:', err);
+              if (isMounted) {
+                setError(`Failed to initialize: ${err.message}`);
+                setIsLoading(false);
+              }
+            }
+          } else if (initAttempts < maxInitAttempts) {
+            // Keep waiting for Google Identity Services to load
+            setTimeout(waitForGoogleAndInit, 100);
+          } else {
+            console.error('Google Identity Services failed to load after', maxInitAttempts, 'attempts');
+            if (isMounted) {
+              setError('Google Sign-In script failed to load. Please check your internet connection and refresh the page.');
+              setIsLoading(false);
+            }
+          }
+        };
+
         const renderButton = () => {
-          if (window.google && window.google.accounts && window.google.accounts.id && buttonRef.current) {
+          if (!isMounted) return;
+          
+          if (buttonRef.current && window.google && window.google.accounts && window.google.accounts.id) {
             try {
               // Clear any existing content
               buttonRef.current.innerHTML = '';
@@ -216,29 +241,48 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                   text: 'signin_with',
                 }
               );
+              console.log('Google Sign-In button rendered successfully');
               setIsLoading(false);
             } catch (err) {
               console.error('Error rendering button:', err);
-              setError('Failed to render sign-in button. Please refresh the page.');
-              setIsLoading(false);
+              if (isMounted) {
+                setError(`Failed to render button: ${err.message}. Please check that your domain is authorized in Google OAuth settings.`);
+                setIsLoading(false);
+              }
             }
           } else if (retryCountRef.current < maxRetries) {
             retryCountRef.current++;
             setTimeout(renderButton, 100);
           } else {
-            if (!window.google || !window.google.accounts) {
-              setError('Google Sign-In failed to load. Please check your connection and refresh the page.');
+            if (!buttonRef.current) {
+              console.error('Button ref is null');
+              if (isMounted) {
+                setError('Button element not found. Please refresh the page.');
+                setIsLoading(false);
+              }
+            } else if (!window.google || !window.google.accounts) {
+              console.error('Google Identity Services not loaded');
+              if (isMounted) {
+                setError('Google Sign-In script not loaded. Please check your connection.');
+                setIsLoading(false);
+              }
             } else {
-              setError('Failed to load sign-in button. Please refresh the page.');
+              console.error('Unknown error rendering button');
+              if (isMounted) {
+                setError('Failed to load sign-in button. Please refresh the page.');
+                setIsLoading(false);
+              }
             }
-            setIsLoading(false);
           }
         };
 
-        // Wait for both Google Identity Services and the ref to be ready
-        const timer = setTimeout(renderButton, 300);
-        return () => clearTimeout(timer);
-      }, []);
+        // Start waiting for Google Identity Services
+        waitForGoogleAndInit();
+
+        return () => {
+          isMounted = false;
+        };
+      }, [handleCredentialResponse]);
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
