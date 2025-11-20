@@ -101,6 +101,8 @@
     };
 
     // Fetch Salesforce customer context (using real account data + cases)
+    // Note: This function is defined outside component but doesn't use component state
+    // Cases are fetched separately via fetchCasesForAccount
     const fetchSalesforceData = async (customerIdentifier, accountData = null) => {
       // Use account data if provided, otherwise return minimal context
       if (!accountData) {
@@ -127,19 +129,16 @@
             const casesData = await casesResponse.json();
             recentCases = casesData.cases || [];
             totalCasesCount = casesData.total || recentCases.length;
-            // Store cases in state for display
-            setCases(recentCases);
+            // Note: Cases are set in state via fetchCasesForAccount, not here
           }
         } catch (err) {
           logError('Error fetching cases:', err);
           // Continue without cases - not critical
-          setCases([]);
         }
-      } else {
-        setCases([]);
       }
       
       // Return real Salesforce account data with cases
+      // Include more case details for sentiment analysis (description, type, reason, etc.)
       return {
         account_tier: accountData.accountTier || null,
         contract_value: accountData.contractValue || null,
@@ -150,10 +149,15 @@
         account_manager: accountData.ownerName || null,
         recent_tickets: recentCases.map(c => ({
           id: c.caseNumber || c.id,
-          subject: c.subject,
-          status: c.status,
-          created_date: c.createdDate,
-          priority: c.priority,
+          subject: c.subject || null,
+          status: c.status || null,
+          priority: c.priority || null,
+          type: c.type || null,
+          reason: c.reason || null,
+          origin: c.origin || null,
+          created_date: c.createdDate || null,
+          closed_date: c.closedDate || null,
+          description: c.description || null, // Include description for sentiment analysis
         })),
         total_cases_count: totalCasesCount,
       };
