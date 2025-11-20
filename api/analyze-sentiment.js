@@ -122,20 +122,65 @@ export default async function handler(req, res) {
     const requestBody = {
       contents: [{
         parts: [{
-          text: `Analyze the customer sentiment from the following conversation transcription and Salesforce context:
+          text: `Analyze the customer sentiment from the following conversation transcription and Salesforce account context.
 
-TRANSCRIPTION:
-${transcription}
+=== CONVERSATION TRANSCRIPTION ===
+${transcription || '(No transcription available)'}
 
-SALESFORCE CONTEXT:
+=== SALESFORCE ACCOUNT CONTEXT ===
 ${JSON.stringify(salesforceContext, null, 2)}
 
-Please provide a sentiment analysis based on the customer's overall experience, considering their initial concerns, how they were addressed, and the final outcome.`
+=== ANALYSIS INSTRUCTIONS ===
+Provide a comprehensive sentiment analysis considering:
+
+1. **Conversation Sentiment**:
+   - Initial customer tone and emotional state
+   - Language patterns (positive/negative indicators, urgency, frustration)
+   - Resolution quality and how concerns were addressed
+   - Final outcome and customer satisfaction level
+
+2. **Support Case Context**:
+   - Number of recent support cases (${salesforceContext.total_cases_count || 0} total)
+   - Case priorities and statuses (high priority or unresolved cases indicate issues)
+   - Case descriptions (customer feedback and issue details)
+   - Case types and reasons (patterns in support needs)
+   - Resolution timelines (closed dates vs created dates)
+
+3. **Account Profile**:
+   - Account tier: ${salesforceContext.account_tier || 'Unknown'}
+   - Contract value: ${salesforceContext.contract_value || 'Unknown'}
+   - Industry: ${salesforceContext.industry || 'Unknown'}
+   - Account manager: ${salesforceContext.account_manager || 'Unknown'}
+
+4. **Engagement Metrics**:
+   - Total Avoma calls: ${salesforceContext.total_avoma_calls || 0}
+   - Ready transcripts: ${salesforceContext.ready_avoma_calls || 0}
+
+5. **Overall Assessment**:
+   - Customer relationship health (at-risk, stable, or thriving)
+   - Key risk factors or positive indicators
+   - Recommended actions or areas of concern
+
+Provide a sentiment score (1-10) and a detailed summary that explains:
+- What factors most influenced the score
+- Specific concerns or positive signals identified
+- Relationship trajectory (improving, declining, stable)
+- Actionable insights for account management`
         }]
       }],
       systemInstruction: {
         parts: [{
-          text: "You are a Customer Sentiment Analyst. Your role is to analyze customer conversations and provide structured sentiment scores. Consider the full customer journey, including initial concerns, resolution quality, and final satisfaction. Provide scores from 1 (very negative) to 10 (very positive) with concise, actionable summaries."
+          text: `You are an expert Customer Sentiment Analyst specializing in B2B customer relationship analysis. Your role is to provide comprehensive sentiment analysis by evaluating:
+
+1. **Conversation Analysis**: Tone, language patterns, emotional indicators, frustration levels, satisfaction signals
+2. **Support Context**: Recent support cases, their status, priority, and descriptions - these reveal underlying issues
+3. **Account Health**: Account tier, contract value, industry context - higher value accounts may have different expectations
+4. **Resolution Quality**: How effectively concerns were addressed, response time indicators, solution completeness
+5. **Relationship Trajectory**: Whether sentiment is improving, declining, or stable over time
+
+Consider the full customer journey from initial contact through resolution. Weight recent interactions more heavily but consider historical context. Account for account value and industry norms when assessing expectations.
+
+Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - strong advocate) with detailed, actionable summaries that explain the reasoning and highlight key factors influencing the sentiment.`
         }]
       },
       generationConfig: {
@@ -149,7 +194,7 @@ Please provide a sentiment analysis based on the customer's overall experience, 
             },
             summary: {
               type: "string",
-              description: "A concise justification of the sentiment score, maximum 50 words."
+              description: "A comprehensive summary of the sentiment analysis, including key factors influencing the score, specific concerns or positive signals, relationship trajectory, and actionable insights. Maximum 150 words to allow for detailed analysis."
             }
           },
           required: ["score", "summary"]
