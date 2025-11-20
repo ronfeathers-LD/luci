@@ -127,7 +127,8 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   }
   
   // Field selection - try custom fields first, fallback to standard
-  const customFields = `Id, Name, Account_Tier__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Account_Segment__c (formula field) for Tier instead of Account_Tier__c
+  const customFields = `Id, Name, Account_Segment__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   let useCustomFields = true;
