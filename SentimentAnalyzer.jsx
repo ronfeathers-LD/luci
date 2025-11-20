@@ -1,0 +1,361 @@
+import React, { useState, useCallback } from 'react';
+
+/**
+ * Customer Sentiment Analyzer
+ * 
+ * ⚠️ PRODUCTION NOTE: The analyzeSentiment function contains sensitive API logic
+ * and should be moved to a secure Vercel Serverless Function in production
+ * to protect your Gemini API key and prevent client-side exposure.
+ */
+
+// Mock: Fetch Avoma transcription data
+const fetchAvomaData = async (customerIdentifier) => {
+  // Simulate API delay
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Return hardcoded transcription showing customer journey from upset to placated
+  return `[Avoma Transcription - ${customerIdentifier}]
+
+Rep: Good morning, thank you for taking the time to speak with me today. How can I help you?
+
+Customer: I'm really frustrated. We've been experiencing constant downtime with your service over the past two weeks, and it's impacting our operations significantly. This is unacceptable for an Enterprise account.
+
+Rep: I completely understand your frustration, and I sincerely apologize for the inconvenience. Let me pull up your account details right away.
+
+Customer: We're paying a premium for this service, and frankly, I'm considering looking at alternatives if this continues.
+
+Rep: I absolutely hear you. I can see here that you're on our Enterprise Tier 1 plan with a $120,000 annual contract. I want to make sure we resolve this immediately. I'm going to escalate this to our technical team right now, and I'm also going to apply a $5,000 service credit to your account for the downtime you've experienced.
+
+Customer: Well, that's a start, but I need to understand what's actually causing these issues.
+
+Rep: Of course. Our technical team has identified that the issue was related to a recent infrastructure update that affected a small subset of Enterprise accounts. We've rolled back the changes and implemented additional monitoring. The root cause has been resolved, and we've added safeguards to prevent this from happening again.
+
+Customer: Okay, that makes sense. And you're confident this won't happen again?
+
+Rep: Yes, absolutely. We've implemented additional redundancy and monitoring specifically for Enterprise accounts. I'll also personally follow up with you in 48 hours to ensure everything is running smoothly. Is there anything else I can help you with today?
+
+Customer: No, that addresses my concerns. Thank you for the quick response and the credit. I appreciate it.
+
+Rep: You're very welcome. Thank you for your patience, and please don't hesitate to reach out if you need anything else.`;
+};
+
+// Mock: Fetch Salesforce customer context
+const fetchSalesforceData = async (customerIdentifier) => {
+  // Simulate API delay
+  await new Promise(resolve => setTimeout(resolve, 400));
+  
+  // Return hardcoded Salesforce context
+  return {
+    account_tier: "Enterprise (Tier 1)",
+    contract_value: "$120,000/year",
+    contract_start_date: "2023-01-15",
+    renewal_date: "2025-01-15",
+    recent_tickets: [
+      {
+        id: "TKT-12345",
+        subject: "Service Interruption - Multiple Outages",
+        status: "Resolved",
+        created_date: "2024-09-10",
+        priority: "High"
+      },
+      {
+        id: "TKT-12346",
+        subject: "Performance Degradation",
+        status: "Resolved",
+        created_date: "2024-09-12",
+        priority: "Medium"
+      }
+    ],
+    account_manager: "Sarah Johnson",
+    customer_since: "2023-01-15",
+    nps_score: 7,
+    last_interaction: "2024-09-15"
+  };
+};
+
+// Retry helper with exponential backoff
+const retryFetch = async (fetchFn, maxRetries = 3, baseDelay = 1000) => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetchFn();
+      
+      if (response.status === 429) {
+        // Rate limit - exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+      
+      return response;
+    } catch (error) {
+      if (attempt === maxRetries - 1) {
+        throw error;
+      }
+      const delay = baseDelay * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+};
+
+// Analyze sentiment using Gemini API
+const analyzeSentiment = async (transcription, salesforceContext) => {
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('Gemini API key not found. Please set REACT_APP_GEMINI_API_KEY or GEMINI_API_KEY environment variable.');
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: `Analyze the customer sentiment from the following conversation transcription and Salesforce context:
+
+TRANSCRIPTION:
+${transcription}
+
+SALESFORCE CONTEXT:
+${JSON.stringify(salesforceContext, null, 2)}
+
+Please provide a sentiment analysis based on the customer's overall experience, considering their initial concerns, how they were addressed, and the final outcome.`
+      }]
+    }],
+    systemInstruction: {
+      parts: [{
+        text: "You are a Customer Sentiment Analyst. Your role is to analyze customer conversations and provide structured sentiment scores. Consider the full customer journey, including initial concerns, resolution quality, and final satisfaction. Provide scores from 1 (very negative) to 10 (very positive) with concise, actionable summaries."
+      }]
+    },
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "object",
+        properties: {
+          score: {
+            type: "integer",
+            description: "Sentiment score from 1 to 10, where 1 is very negative and 10 is very positive."
+          },
+          summary: {
+            type: "string",
+            description: "A concise justification of the sentiment score, maximum 50 words."
+          }
+        },
+        required: ["score", "summary"]
+      },
+      temperature: 0.7,
+      topP: 0.8,
+      topK: 40
+    }
+  };
+
+  const response = await retryFetch(async () => {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+  });
+
+  const data = await response.json();
+  
+  if (data.error) {
+    throw new Error(`Gemini API error: ${data.error.message || 'Unknown error'}`);
+  }
+
+  if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+    throw new Error('Invalid response format from Gemini API');
+  }
+
+  const content = data.candidates[0].content.parts[0].text;
+  const result = JSON.parse(content);
+  
+  // Validate score is within range
+  if (result.score < 1 || result.score > 10) {
+    throw new Error('Invalid sentiment score returned from API');
+  }
+
+  return result;
+};
+
+const SentimentAnalyzer = () => {
+  const [customerIdentifier, setCustomerIdentifier] = useState('Acme Corp');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [sentiment, setSentiment] = useState(null);
+
+  const handleAnalyze = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setSentiment(null);
+
+    try {
+      // Fetch data from both sources in parallel
+      const [transcription, salesforceContext] = await Promise.all([
+        fetchAvomaData(customerIdentifier),
+        fetchSalesforceData(customerIdentifier)
+      ]);
+
+      // Analyze sentiment
+      const result = await analyzeSentiment(transcription, salesforceContext);
+      setSentiment(result);
+    } catch (err) {
+      setError(err.message || 'An error occurred while analyzing sentiment');
+      console.error('Sentiment analysis error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [customerIdentifier]);
+
+  const getScoreColor = (score) => {
+    if (score <= 4) return 'text-red-600 bg-red-50 border-red-200';
+    if (score <= 7) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+    return 'text-green-600 bg-green-50 border-green-200';
+  };
+
+  const getScoreBgColor = (score) => {
+    if (score <= 4) return 'bg-red-100';
+    if (score <= 7) return 'bg-yellow-100';
+    return 'bg-green-100';
+  };
+
+  // Icon Components
+  const TrendingUpIcon = ({ className }) => (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+      <polyline points="16 7 22 7 22 13"></polyline>
+    </svg>
+  );
+
+  const TrendingDownIcon = ({ className }) => (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 17 13.5 8.5 8.5 13.5 2 7"></polyline>
+      <polyline points="16 17 22 17 22 11"></polyline>
+    </svg>
+  );
+
+  const LoaderIcon = ({ className }) => (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="2" x2="12" y2="6"></line>
+      <line x1="12" y1="18" x2="12" y2="22"></line>
+      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+      <line x1="2" y1="12" x2="6" y2="12"></line>
+      <line x1="18" y1="12" x2="22" y2="12"></line>
+      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+    </svg>
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Customer Pulse Dashboard
+          </h1>
+          <p className="text-lg text-gray-600">
+            Avoma Transcript & Salesforce Context Sentiment Analysis
+          </p>
+        </div>
+
+        {/* Input Section */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <label htmlFor="customer-id" className="block text-sm font-medium text-gray-700 mb-2">
+            Customer ID or Account Name
+          </label>
+          <div className="flex gap-4">
+            <input
+              id="customer-id"
+              type="text"
+              value={customerIdentifier}
+              onChange={(e) => setCustomerIdentifier(e.target.value)}
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+              placeholder="Enter customer identifier"
+              disabled={loading}
+            />
+            <button
+              onClick={handleAnalyze}
+              disabled={loading}
+              className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 min-w-[140px] justify-center"
+            >
+              {loading ? (
+                <>
+                  <LoaderIcon className="w-5 h-5 animate-spin" />
+                  <span>Analyzing...</span>
+                </>
+              ) : (
+                'Analyze Sentiment'
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-700 font-medium">Error</p>
+                <p className="text-sm text-red-600 mt-1">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Results Display */}
+        {sentiment && (
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            {/* Score Display */}
+            <div className={`text-center mb-6 p-8 rounded-xl border-2 ${getScoreColor(sentiment.score)}`}>
+              <div className="text-6xl font-bold mb-2">
+                {sentiment.score}
+              </div>
+              <div className="text-xl font-semibold text-gray-600">
+                / 10
+              </div>
+            </div>
+
+            {/* Summary Display */}
+            <div className={`rounded-lg p-6 ${getScoreBgColor(sentiment.score)}`}>
+              <div className="flex items-start gap-3">
+                {sentiment.score >= 8 ? (
+                  <TrendingUpIcon className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                ) : (
+                  <TrendingDownIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                )}
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 mb-2">Sentiment Summary</h3>
+                  <p className="text-gray-700 leading-relaxed">{sentiment.summary}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Footer Note */}
+        <div className="mt-8 text-center">
+          <p className="text-xs text-gray-500">
+            ⚠️ Production Note: The analyzeSentiment logic should be moved to a secure Vercel Serverless Function to protect API keys.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default SentimentAnalyzer;
+
