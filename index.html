@@ -96,50 +96,26 @@
       }
     };
 
-    // Mock: Fetch Salesforce customer context
+    // Fetch Salesforce customer context (using real account data)
     const fetchSalesforceData = async (customerIdentifier, accountData = null) => {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 400));
+      // Use account data if provided, otherwise return minimal context
+      if (!accountData) {
+        return {
+          account_tier: "Unknown",
+          contract_value: "Unknown",
+          account_manager: "Unknown",
+        };
+      }
       
-      // Use account data if provided, otherwise use defaults
-      const baseData = accountData ? {
-        account_tier: accountData.accountTier || "Enterprise (Tier 1)",
-        contract_value: accountData.contractValue || "$120,000/year",
+      // Return real Salesforce account data
+      return {
+        account_tier: accountData.accountTier || null,
+        contract_value: accountData.contractValue || null,
         account_id: accountData.id,
         account_name: accountData.name,
-        industry: accountData.industry,
-        annual_revenue: accountData.annualRevenue,
-        account_manager: accountData.ownerName || "Sarah Johnson",
-      } : {
-        account_tier: "Enterprise (Tier 1)",
-        contract_value: "$120,000/year",
-        account_manager: "Sarah Johnson",
-      };
-      
-      // Return Salesforce context with account data
-      return {
-        ...baseData,
-        contract_start_date: "2023-01-15",
-        renewal_date: "2025-01-15",
-        recent_tickets: [
-          {
-            id: "TKT-12345",
-            subject: "Service Interruption - Multiple Outages",
-            status: "Resolved",
-            created_date: "2024-09-10",
-            priority: "High"
-          },
-          {
-            id: "TKT-12346",
-            subject: "Performance Degradation",
-            status: "Resolved",
-            created_date: "2024-09-12",
-            priority: "Medium"
-          }
-        ],
-        customer_since: "2023-01-15",
-        nps_score: 7,
-        last_interaction: "2024-09-15"
+        industry: accountData.industry || null,
+        annual_revenue: accountData.annualRevenue || null,
+        account_manager: accountData.ownerName || null,
       };
     };
 

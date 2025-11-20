@@ -31,7 +31,7 @@ In Supabase SQL Editor, run:
 ```sql
 INSERT INTO avoma_configs (api_key, api_url, is_active)
 VALUES (
-  'your-avoma-api-key-here',
+  'nrkxhy5b5g:n6jp7yy57r2deudcsgr3',
   'https://api.avoma.com/v1',
   true
 );
