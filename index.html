@@ -69,35 +69,31 @@
      * Uses secure Vercel Serverless Function (/api/analyze-sentiment) to protect API keys
      */
 
-    // Mock: Fetch Avoma transcription data
-    const fetchAvomaData = async (customerIdentifier) => {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Return hardcoded transcription showing customer journey from upset to placated
-      return `[Avoma Transcription - ${customerIdentifier}]
+    // Fetch Avoma transcription data (with caching)
+    const fetchAvomaData = async (customerIdentifier, salesforceAccountId = null) => {
+      try {
+        const response = await fetch('/api/avoma-transcription', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customerIdentifier: customerIdentifier,
+            salesforceAccountId: salesforceAccountId,
+          }),
+        });
 
-Rep: Good morning, thank you for taking the time to speak with me today. How can I help you?
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to fetch transcription');
+        }
 
-Customer: I'm really frustrated. We've been experiencing constant downtime with your service over the past two weeks, and it's impacting our operations significantly. This is unacceptable for an Enterprise account.
-
-Rep: I completely understand your frustration, and I sincerely apologize for the inconvenience. Let me pull up your account details right away.
-
-Customer: We're paying a premium for this service, and frankly, I'm considering looking at alternatives if this continues.
-
-Rep: I absolutely hear you. I can see here that you're on our Enterprise Tier 1 plan with a $120,000 annual contract. I want to make sure we resolve this immediately. I'm going to escalate this to our technical team right now, and I'm also going to apply a $5,000 service credit to your account for the downtime you've experienced.
-
-Customer: Well, that's a start, but I need to understand what's actually causing these issues.
-
-Rep: Of course. Our technical team has identified that the issue was related to a recent infrastructure update that affected a small subset of Enterprise accounts. We've rolled back the changes and implemented additional monitoring. The root cause has been resolved, and we've added safeguards to prevent this from happening again.
-
-Customer: Okay, that makes sense. And you're confident this won't happen again?
-
-Rep: Yes, absolutely. We've implemented additional redundancy and monitoring specifically for Enterprise accounts. I'll also personally follow up with you in 48 hours to ensure everything is running smoothly. Is there anything else I can help you with today?
-
-Customer: No, that addresses my concerns. Thank you for the quick response and the credit. I appreciate it.
-
-Rep: You're very welcome. Thank you for your patience, and please don't hesitate to reach out if you need anything else.`;
+        const data = await response.json();
+        return data.transcription || '';
+      } catch (error) {
+        logError('Error fetching Avoma transcription:', error);
+        throw error;
+      }
     };
 
     // Mock: Fetch Salesforce customer context
@@ -453,7 +449,7 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         try {
           // Fetch data from both sources in parallel
           const [transcription, salesforceContext] = await Promise.all([
-            fetchAvomaData(customerIdentifier),
+            fetchAvomaData(customerIdentifier, selectedAccount?.salesforceId || selectedAccount?.id),
             fetchSalesforceData(customerIdentifier, selectedAccount)
           ]);
 

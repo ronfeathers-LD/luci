@@ -1,0 +1,291 @@
+/**
+ * Vercel Serverless Function for Avoma Transcription
+ * 
+ * Fetches transcriptions from Avoma API with intelligent caching
+ * Only calls Avoma API when cache is stale or missing
+ */
+
+const { getSupabaseClient } = require('../lib/supabase-client');
+const { AvomaClient } = require('../lib/avoma-client');
+
+// Constants
+const CACHE_TTL_HOURS = 24; // Cache transcriptions for 24 hours
+const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
+
+/**
+ * Get Avoma config from Supabase
+ */
+async function getAvomaConfig(supabase) {
+  const { data: config, error: configError } = await supabase
+    .from('avoma_configs')
+    .select('*')
+    .eq('is_active', true)
+    .single();
+
+  if (configError || !config) {
+    throw new Error('Avoma configuration not found. Please configure Avoma API credentials.');
+  }
+
+  return config;
+}
+
+/**
+ * Check if cached transcription is fresh
+ */
+function isCacheFresh(lastSyncedAt) {
+  if (!lastSyncedAt) return false;
+  
+  const now = new Date();
+  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
+  const lastSynced = new Date(lastSyncedAt);
+  
+  return (now - lastSynced) < cacheExpiry;
+}
+
+/**
+ * Get cached transcription from Supabase
+ */
+async function getCachedTranscription(supabase, customerIdentifier, salesforceAccountId) {
+  if (!supabase) return null;
+
+  // Try to find by customer identifier or Salesforce account ID
+  let query = supabase
+    .from('transcriptions')
+    .select('*')
+    .order('meeting_date', { ascending: false })
+    .limit(1);
+
+  if (salesforceAccountId) {
+    query = query.eq('salesforce_account_id', salesforceAccountId);
+  } else if (customerIdentifier) {
+    query = query.ilike('customer_identifier', `%${customerIdentifier}%`);
+  } else {
+    return null;
+  }
+
+  const { data: transcriptions, error } = await query;
+
+  if (error || !transcriptions || transcriptions.length === 0) {
+    return null;
+  }
+
+  const transcription = transcriptions[0];
+  
+  return {
+    transcription: transcription,
+    isFresh: isCacheFresh(transcription.last_synced_at),
+  };
+}
+
+/**
+ * Search Avoma for meetings matching customer identifier
+ */
+async function searchAvomaMeetings(avomaClient, customerIdentifier) {
+  const searchResult = await avomaClient.searchMeetings(customerIdentifier, 5);
+  
+  // Get the most recent meeting with a ready transcript
+  const meetings = searchResult.results || searchResult.calls || [];
+  const readyMeetings = meetings.filter(m => m.transcript_ready);
+  
+  if (readyMeetings.length === 0) {
+    return null;
+  }
+
+  // Return the most recent meeting
+  return readyMeetings.sort((a, b) => {
+    const dateA = new Date(a.start_at || a.meeting_date || 0);
+    const dateB = new Date(b.start_at || b.meeting_date || 0);
+    return dateB - dateA;
+  })[0];
+}
+
+/**
+ * Fetch transcription from Avoma API
+ */
+async function fetchFromAvoma(avomaClient, meetingUuid) {
+  // Get meeting details first
+  const meeting = await avomaClient.getMeeting(meetingUuid);
+  
+  if (!meeting.transcript_ready) {
+    throw new Error('Transcript is not ready for this meeting');
+  }
+
+  // Get transcript text
+  const transcriptResult = await avomaClient.getMeetingTranscriptText(meetingUuid);
+  
+  return {
+    transcription: transcriptResult.text,
+    speakers: transcriptResult.speakers,
+    meeting: {
+      uuid: meetingUuid,
+      subject: meeting.subject,
+      start_at: meeting.start_at,
+      meeting_date: meeting.start_at ? new Date(meeting.start_at) : null,
+      duration: meeting.duration,
+      url: meeting.url,
+      attendees: meeting.attendees,
+    },
+  };
+}
+
+/**
+ * Save transcription to Supabase cache
+ */
+async function cacheTranscription(supabase, transcriptionData, customerIdentifier, salesforceAccountId) {
+  if (!supabase || !transcriptionData) return null;
+
+  const transcriptionRecord = {
+    avoma_meeting_uuid: transcriptionData.meeting.uuid,
+    salesforce_account_id: salesforceAccountId || null,
+    customer_identifier: customerIdentifier || null,
+    transcription_text: transcriptionData.transcription,
+    speakers: transcriptionData.speakers || null,
+    meeting_subject: transcriptionData.meeting.subject || null,
+    meeting_date: transcriptionData.meeting.meeting_date || null,
+    meeting_duration: transcriptionData.meeting.duration || null,
+    meeting_url: transcriptionData.meeting.url || null,
+    attendees: transcriptionData.meeting.attendees || null,
+    last_synced_at: new Date().toISOString(),
+  };
+
+  const { data: saved, error } = await supabase
+    .from('transcriptions')
+    .upsert(transcriptionRecord, {
+      onConflict: 'avoma_meeting_uuid',
+      ignoreDuplicates: false,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error caching transcription:', error);
+    return null;
+  }
+
+  return saved;
+}
+
+module.exports = async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  // Only allow POST and GET requests
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Check request size
+  const contentLength = req.headers['content-length'];
+  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
+    return res.status(413).json({ error: 'Request too large' });
+  }
+
+  try {
+    const supabase = getSupabaseClient();
+    
+    if (!supabase) {
+      return res.status(500).json({ 
+        error: 'Database not configured',
+        details: process.env.NODE_ENV === 'production' ? undefined : 'Supabase not configured'
+      });
+    }
+
+    // Get parameters
+    const { customerIdentifier, salesforceAccountId, meetingUuid, forceRefresh } = req.method === 'POST' 
+      ? req.body 
+      : req.query;
+
+    if (!customerIdentifier && !salesforceAccountId && !meetingUuid) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: customerIdentifier, salesforceAccountId, or meetingUuid' 
+      });
+    }
+
+    const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
+
+    // Check cache first (unless force refresh)
+    if (!shouldForceRefresh && !meetingUuid) {
+      const cached = await getCachedTranscription(supabase, customerIdentifier, salesforceAccountId);
+      
+      if (cached && cached.isFresh) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Returning cached transcription (fresh)');
+        }
+        return res.status(200).json({
+          transcription: cached.transcription.transcription_text,
+          speakers: cached.transcription.speakers,
+          meeting: {
+            subject: cached.transcription.meeting_subject,
+            meeting_date: cached.transcription.meeting_date,
+            duration: cached.transcription.meeting_duration,
+            url: cached.transcription.meeting_url,
+            attendees: cached.transcription.attendees,
+          },
+          cached: true,
+          last_synced_at: cached.transcription.last_synced_at,
+        });
+      }
+    }
+
+    // Get Avoma config
+    const avomaConfig = await getAvomaConfig(supabase);
+    const avomaClient = new AvomaClient(avomaConfig.api_key, avomaConfig.api_url);
+
+    let transcriptionData;
+
+    if (meetingUuid) {
+      // Direct meeting UUID provided
+      transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
+    } else {
+      // Search for meetings by customer identifier
+      const meeting = await searchAvomaMeetings(avomaClient, customerIdentifier);
+      
+      if (!meeting) {
+        return res.status(404).json({ 
+          error: 'No meetings with ready transcripts found for this customer' 
+        });
+      }
+
+      transcriptionData = await fetchFromAvoma(avomaClient, meeting.uuid);
+    }
+
+    // Cache the transcription
+    const cached = await cacheTranscription(
+      supabase,
+      transcriptionData,
+      customerIdentifier,
+      salesforceAccountId
+    );
+
+    return res.status(200).json({
+      transcription: transcriptionData.transcription,
+      speakers: transcriptionData.speakers,
+      meeting: {
+        subject: transcriptionData.meeting.subject,
+        meeting_date: transcriptionData.meeting.meeting_date,
+        duration: transcriptionData.meeting.duration,
+        url: transcriptionData.meeting.url,
+        attendees: transcriptionData.meeting.attendees,
+      },
+      cached: !!cached,
+      last_synced_at: cached?.last_synced_at || new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error('Error in avoma-transcription function:', error);
+    return res.status(500).json({ 
+      error: 'Failed to fetch transcription',
+      details: process.env.NODE_ENV === 'production' 
+        ? undefined 
+        : error.message 
+    });
+  }
+}
+
