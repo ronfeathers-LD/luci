@@ -254,8 +254,24 @@ module.exports = async function handler(req, res) {
     const sfdcAuth = await authenticateSalesforce(supabase);
     const sfdcCases = await querySalesforceCases(sfdcAuth.connection, salesforceAccountId);
 
-    // Get account UUID from Supabase if accountId not provided
-    let accountUuid = accountId;
+    // Always look up account UUID from Supabase using salesforce_account_id
+    // The accountId parameter might be a Salesforce ID string, not a UUID
+    let accountUuid = null;
+    
+    // First, try to use accountId if it looks like a UUID (has dashes)
+    if (accountId && accountId.includes('-') && accountId.length === 36) {
+      // It's likely a UUID, verify it exists
+      const { data: account } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('id', accountId)
+        .single();
+      if (account) {
+        accountUuid = account.id;
+      }
+    }
+    
+    // If we don't have a valid UUID yet, look it up by salesforce_id
     if (!accountUuid) {
       const { data: account } = await supabase
         .from('accounts')
