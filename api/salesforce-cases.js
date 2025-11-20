@@ -293,7 +293,8 @@ module.exports = async function handler(req, res) {
     console.error('Error in salesforce-cases function:', error);
     
     // If Salesforce fails, try to return stale cache
-    if (!shouldForceRefresh) {
+    const supabase = getSupabaseClient();
+    if (!shouldForceRefresh && supabase) {
       const staleCache = await getCachedCases(supabase, salesforceAccountId);
       if (staleCache && staleCache.cases.length > 0) {
         if (process.env.NODE_ENV !== 'production') {
