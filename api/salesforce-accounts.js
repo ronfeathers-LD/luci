@@ -113,6 +113,21 @@ async function authenticateSalesforce(supabase) {
  * Uses standard fields only (custom fields may not exist in all orgs)
  */
 async function querySalesforceAccounts(conn, userId, userEmail, role) {
+  // First, get the Salesforce User ID for the email (needed for AccountTeamMember query)
+  let salesforceUserId = null;
+  try {
+    const userQuery = `SELECT Id FROM User WHERE Email = '${userEmail}' LIMIT 1`;
+    const userResult = await conn.query(userQuery);
+    if (userResult.records && userResult.records.length > 0) {
+      salesforceUserId = userResult.records[0].Id;
+      console.log(`Found Salesforce User ID: ${salesforceUserId} for email: ${userEmail}`);
+    } else {
+      console.warn(`No Salesforce User found for email: ${userEmail}`);
+    }
+  } catch (error) {
+    console.warn(`Could not find Salesforce User for email ${userEmail}:`, error.message);
+  }
+  
   // Build SOQL query based on user role
   // Use standard fields only - custom fields will be null if they don't exist
   // We'll try to include custom fields but handle gracefully if they fail
@@ -133,19 +148,15 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   `;
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
-    // Query accounts owned by user or in their territory
-    const whereClause = `
-      WHERE Owner.Email = '${userEmail}'
-         OR Id IN (
-           SELECT AccountId 
-           FROM AccountTeamMember 
-           WHERE UserId IN (
-             SELECT Id FROM User WHERE Email = '${userEmail}'
-           )
-         )
-      ORDER BY Name
-      LIMIT 100
-    `;
+    // Build WHERE clause - avoid nested subqueries
+    let whereConditions = [`Owner.Email = '${userEmail}'`];
+    
+    // Add AccountTeamMember condition if we found the User ID
+    if (salesforceUserId) {
+      whereConditions.push(`Id IN (SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}')`);
+    }
+    
+    const whereClause = `WHERE ${whereConditions.join(' OR ')} ORDER BY Name LIMIT 100`;
     
     soqlQuery = customFieldsQuery + whereClause;
   } else {
@@ -162,18 +173,14 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
       console.warn('Custom fields not found, using standard fields only');
       
       if (role === 'Account Manager' || role === 'Sales Rep') {
-        const whereClause = `
-          WHERE Owner.Email = '${userEmail}'
-             OR Id IN (
-               SELECT AccountId 
-               FROM AccountTeamMember 
-               WHERE UserId IN (
-                 SELECT Id FROM User WHERE Email = '${userEmail}'
-               )
-             )
-          ORDER BY Name
-          LIMIT 100
-        `;
+        let whereConditions = [`Owner.Email = '${userEmail}'`];
+        
+        // Add AccountTeamMember condition if we found the User ID
+        if (salesforceUserId) {
+          whereConditions.push(`Id IN (SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}')`);
+        }
+        
+        const whereClause = `WHERE ${whereConditions.join(' OR ')} ORDER BY Name LIMIT 100`;
         soqlQuery = standardFieldsQuery + whereClause;
       } else {
         soqlQuery = standardFieldsQuery + ` ORDER BY Name LIMIT 100`;
