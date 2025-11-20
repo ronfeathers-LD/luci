@@ -113,7 +113,9 @@ You'll need:
 
 - **Production**: `https://login.salesforce.com`
 - **Sandbox**: `https://test.salesforce.com`
-- **Custom Domain**: Your custom Salesforce domain URL
+- **Custom Domain**: Your custom Salesforce domain URL (e.g., `https://leandata.my.salesforce.com`)
+
+**Note**: If you have a custom domain like `https://yourcompany.my.salesforce.com`, use that as your login URL. The OAuth token endpoint will be: `https://yourcompany.my.salesforce.com/services/oauth2/token`
 
 ---
 
