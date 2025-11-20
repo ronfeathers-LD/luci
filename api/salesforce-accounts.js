@@ -152,22 +152,40 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         }
         } catch (error) {
           if (error.errorCode === 'INVALID_FIELD') {
-            console.warn('Custom fields not found, using standard fields only');
-            useCustomFields = false;
-            ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
-          const ownerResult = await conn.query(ownerQuery);
-          if (ownerResult.records) {
-            ownerResult.records.forEach(acc => {
-              accountMap.set(acc.Id, acc);
-            });
-            if (process.env.NODE_ENV !== 'production') {
-            console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
+            console.warn('Custom fields not found, trying alternative field names...');
+            
+            // Try alternative field names (including Account_Segment__c for tier)
+            const altCustomFields = `Id, Name, Account_Segment__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+            try {
+              ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+              const altResult = await conn.query(ownerQuery);
+              if (altResult.records) {
+                altResult.records.forEach(acc => {
+                  accountMap.set(acc.Id, acc);
+                });
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log(`Found ${altResult.records.length} accounts with alternative field names`);
+                }
+              }
+            } catch (altError) {
+              // If alternative fields also fail, fall back to standard fields
+              console.warn('Alternative custom fields also not found, using standard fields only');
+              useCustomFields = false;
+              ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
+              const ownerResult = await conn.query(ownerQuery);
+              if (ownerResult.records) {
+                ownerResult.records.forEach(acc => {
+                  accountMap.set(acc.Id, acc);
+                });
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
+                }
+              }
+            }
+          } else {
+            throw error;
           }
-          }
-        } else {
-          throw error;
         }
-      }
     } catch (error) {
       console.error('Error querying accounts by owner:', error);
     }
@@ -300,7 +318,8 @@ async function searchSalesforceAccounts(conn, searchTerm) {
   const escapedSearch = escapeSOQL(searchTerm.trim());
   
   // Field selection - try custom fields first, fallback to standard
-  const customFields = `Id, Name, Account_Tier__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  // Using Account_Segment__c (formula field) for Tier instead of Account_Tier__c
+  const customFields = `Id, Name, Account_Segment__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
   // Use LIKE for partial matching (case-insensitive)
@@ -339,11 +358,37 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
   for (const sfdcAccount of sfdcAccounts) {
     // Upsert account in Supabase
     // Handle custom fields that may not exist (they'll be undefined)
+    // Try multiple possible field names for tier and contract value
+    // Primary: Account_Segment__c (formula field for Account Segment)
+    const accountTier = sfdcAccount.Account_Segment__c
+      || sfdcAccount.Account_Tier__c 
+      || sfdcAccount.Tier__c 
+      || sfdcAccount.AccountTier__c
+      || sfdcAccount.Tier
+      || null;
+    
+    const contractValue = sfdcAccount.Contract_Value__c
+      || sfdcAccount.ContractValue__c
+      || sfdcAccount.Contract_Value
+      || sfdcAccount.ContractValue
+      || null;
+    
+      // Log field values for debugging (only in non-production)
+      if (process.env.NODE_ENV !== 'production' && sfdcAccounts.length > 0 && sfdcAccounts.indexOf(sfdcAccount) === 0) {
+        console.log('Sample account fields:', {
+          Id: sfdcAccount.Id,
+          Name: sfdcAccount.Name,
+          'Account_Segment__c': sfdcAccount.Account_Segment__c,
+          'Contract_Value__c': sfdcAccount.Contract_Value__c,
+          'All fields': Object.keys(sfdcAccount),
+        });
+      }
+    
     const accountData = {
       salesforce_id: sfdcAccount.Id,
       name: sfdcAccount.Name,
-      account_tier: sfdcAccount.Account_Tier__c || null, // Custom field - may not exist
-      contract_value: sfdcAccount.Contract_Value__c || null, // Custom field - may not exist
+      account_tier: accountTier,
+      contract_value: contractValue,
       industry: sfdcAccount.Industry || null,
       annual_revenue: sfdcAccount.AnnualRevenue || null,
       owner_id: sfdcAccount.OwnerId || null,
