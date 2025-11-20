@@ -110,18 +110,31 @@ async function authenticateSalesforce(supabase) {
 
 /**
  * Query Salesforce for accounts based on user role/ownership
+ * Uses standard fields only (custom fields may not exist in all orgs)
  */
 async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // Build SOQL query based on user role
-  // For Account Managers, get accounts where they are the owner or team member
+  // Use standard fields only - custom fields will be null if they don't exist
+  // We'll try to include custom fields but handle gracefully if they fail
+  
   let soqlQuery;
+  
+  // First, try with custom fields
+  const customFieldsQuery = `
+    SELECT Id, Name, Account_Tier__c, Contract_Value__c, Industry, 
+           AnnualRevenue, OwnerId, Owner.Name, Owner.Email
+    FROM Account
+  `;
+  
+  // Standard fields only (fallback)
+  const standardFieldsQuery = `
+    SELECT Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email
+    FROM Account
+  `;
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
     // Query accounts owned by user or in their territory
-    soqlQuery = `
-      SELECT Id, Name, Account_Tier__c, Contract_Value__c, Industry, 
-             AnnualRevenue, OwnerId, Owner.Name, Owner.Email
-      FROM Account
+    const whereClause = `
       WHERE Owner.Email = '${userEmail}'
          OR Id IN (
            SELECT AccountId 
@@ -133,19 +146,44 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
       ORDER BY Name
       LIMIT 100
     `;
+    
+    soqlQuery = customFieldsQuery + whereClause;
   } else {
     // For admins or other roles, get all accounts (adjust as needed)
-    soqlQuery = `
-      SELECT Id, Name, Account_Tier__c, Contract_Value__c, Industry, 
-             AnnualRevenue, OwnerId, Owner.Name, Owner.Email
-      FROM Account
-      ORDER BY Name
-      LIMIT 100
-    `;
+    soqlQuery = customFieldsQuery + ` ORDER BY Name LIMIT 100`;
   }
 
-  const result = await conn.query(soqlQuery);
-  return result.records || [];
+  try {
+    const result = await conn.query(soqlQuery);
+    return result.records || [];
+  } catch (error) {
+    // If custom fields don't exist, try with standard fields only
+    if (error.errorCode === 'INVALID_FIELD') {
+      console.warn('Custom fields not found, using standard fields only');
+      
+      if (role === 'Account Manager' || role === 'Sales Rep') {
+        const whereClause = `
+          WHERE Owner.Email = '${userEmail}'
+             OR Id IN (
+               SELECT AccountId 
+               FROM AccountTeamMember 
+               WHERE UserId IN (
+                 SELECT Id FROM User WHERE Email = '${userEmail}'
+               )
+             )
+          ORDER BY Name
+          LIMIT 100
+        `;
+        soqlQuery = standardFieldsQuery + whereClause;
+      } else {
+        soqlQuery = standardFieldsQuery + ` ORDER BY Name LIMIT 100`;
+      }
+      
+      const result = await conn.query(soqlQuery);
+      return result.records || [];
+    }
+    throw error;
+  }
 }
 
 /**
@@ -160,11 +198,12 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId) {
 
   for (const sfdcAccount of sfdcAccounts) {
     // Upsert account in Supabase
+    // Handle custom fields that may not exist (they'll be undefined)
     const accountData = {
       salesforce_id: sfdcAccount.Id,
       name: sfdcAccount.Name,
-      account_tier: sfdcAccount.Account_Tier__c || null,
-      contract_value: sfdcAccount.Contract_Value__c || null,
+      account_tier: sfdcAccount.Account_Tier__c || null, // Custom field - may not exist
+      contract_value: sfdcAccount.Contract_Value__c || null, // Custom field - may not exist
       industry: sfdcAccount.Industry || null,
       annual_revenue: sfdcAccount.AnnualRevenue || null,
       owner_id: sfdcAccount.OwnerId || null,
