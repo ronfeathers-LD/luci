@@ -89,7 +89,11 @@
         }
 
         const data = await response.json();
-        return data.transcription || '';
+        // Return transcription and meeting counts
+        return {
+          transcription: data.transcription || '',
+          meetingCounts: data.meetingCounts || null,
+        };
       } catch (error) {
         logError('Error fetching Avoma transcription:', error);
         throw error;
@@ -109,6 +113,7 @@
       
       // Fetch recent cases/tickets for the account
       let recentCases = [];
+      let totalCasesCount = 0;
       if (accountData.salesforceId || accountData.id) {
         try {
           const salesforceAccountId = accountData.salesforceId || accountData.id;
@@ -121,6 +126,7 @@
           if (casesResponse.ok) {
             const casesData = await casesResponse.json();
             recentCases = casesData.cases || [];
+            totalCasesCount = casesData.total || recentCases.length;
           }
         } catch (err) {
           logError('Error fetching cases:', err);
@@ -144,6 +150,7 @@
           created_date: c.createdDate,
           priority: c.priority,
         })),
+        total_cases_count: totalCasesCount,
       };
     };
 
@@ -518,13 +525,25 @@
 
         try {
           // Fetch data from both sources in parallel
-          const [transcription, salesforceContext] = await Promise.all([
+          const [avomaData, salesforceContext] = await Promise.all([
             fetchAvomaData(customerIdentifier, selectedAccount?.salesforceId || selectedAccount?.id),
             fetchSalesforceData(customerIdentifier, selectedAccount)
           ]);
 
+          // Extract transcription and meeting counts
+          const transcription = avomaData.transcription || '';
+          const meetingCounts = avomaData.meetingCounts || null;
+
+          // Add counts to salesforce context for sentiment analysis
+          const enrichedContext = {
+            ...salesforceContext,
+            total_cases_count: salesforceContext.total_cases_count || 0,
+            total_avoma_calls: meetingCounts?.total || 0,
+            ready_avoma_calls: meetingCounts?.ready || 0,
+          };
+
           // Analyze sentiment
-          const result = await analyzeSentiment(transcription, salesforceContext);
+          const result = await analyzeSentiment(transcription, enrichedContext);
           setSentiment(result);
           setRetryCount(0);
           analytics.track('sentiment_analyzed', { 

@@ -80,25 +80,36 @@ async function getCachedTranscription(supabase, customerIdentifier, salesforceAc
 /**
  * Search Avoma for meetings matching customer identifier
  * Uses Salesforce Account ID if available (more reliable than customer name)
+ * Returns meeting and count of all meetings found
  */
 async function searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId = null) {
   // Search with Salesforce Account ID if available, otherwise use customer name
   const searchResult = await avomaClient.searchMeetings(customerIdentifier, 20, salesforceAccountId);
   
-  // Get the most recent meeting with a ready transcript
-  const meetings = searchResult.results || searchResult.calls || [];
-  const readyMeetings = meetings.filter(m => m.transcript_ready && m.transcription_uuid);
+  // Get all meetings and meetings with ready transcripts
+  const allMeetings = searchResult.results || searchResult.calls || [];
+  const readyMeetings = allMeetings.filter(m => m.transcript_ready && m.transcription_uuid);
   
   if (readyMeetings.length === 0) {
-    return null;
+    return {
+      meeting: null,
+      totalMeetings: allMeetings.length,
+      readyMeetings: 0,
+    };
   }
 
-  // Return the most recent meeting
-  return readyMeetings.sort((a, b) => {
+  // Get the most recent meeting with ready transcript
+  const mostRecentMeeting = readyMeetings.sort((a, b) => {
     const dateA = new Date(a.start_at || a.meeting_date || 0);
     const dateB = new Date(b.start_at || b.meeting_date || 0);
     return dateB - dateA;
   })[0];
+
+  return {
+    meeting: mostRecentMeeting,
+    totalMeetings: allMeetings.length,
+    readyMeetings: readyMeetings.length,
+  };
 }
 
 /**
@@ -264,19 +275,21 @@ export default async function handler(req, res) {
     } else {
       // Search for meetings by customer identifier
       // Use Salesforce Account ID if available (more reliable than customer name)
-      const meeting = await searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId);
+      const searchResult = await searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId);
       
-      if (!meeting) {
+      if (!searchResult.meeting) {
         return res.status(404).json({ 
           error: 'No meetings with ready transcripts found for this customer',
           searchMethod: salesforceAccountId ? 'crm_account_ids' : 'customer_name',
           customerIdentifier: customerIdentifier,
-          salesforceAccountId: salesforceAccountId || 'not provided'
+          salesforceAccountId: salesforceAccountId || 'not provided',
+          totalMeetings: searchResult.totalMeetings,
+          readyMeetings: searchResult.readyMeetings,
         });
       }
 
       // Use meeting UUID (could be uuid or id field)
-      const meetingUuid = meeting.uuid || meeting.id;
+      const meetingUuid = searchResult.meeting.uuid || searchResult.meeting.id;
       if (!meetingUuid) {
         return res.status(500).json({ 
           error: 'Meeting found but missing UUID' 
@@ -284,6 +297,11 @@ export default async function handler(req, res) {
       }
 
       transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
+      // Add meeting counts to transcription data
+      transcriptionData.meetingCounts = {
+        total: searchResult.totalMeetings,
+        ready: searchResult.readyMeetings,
+      };
     }
 
     // Cache the transcription
@@ -294,19 +312,20 @@ export default async function handler(req, res) {
       salesforceAccountId
     );
 
-    return res.status(200).json({
-      transcription: transcriptionData.transcription,
-      speakers: transcriptionData.speakers,
-      meeting: {
-        subject: transcriptionData.meeting.subject,
-        meeting_date: transcriptionData.meeting.meeting_date,
-        duration: transcriptionData.meeting.duration,
-        url: transcriptionData.meeting.url,
-        attendees: transcriptionData.meeting.attendees,
-      },
-      cached: !!cached,
-      last_synced_at: cached?.last_synced_at || new Date().toISOString(),
-    });
+        return res.status(200).json({
+          transcription: transcriptionData.transcription,
+          speakers: transcriptionData.speakers,
+          meeting: {
+            subject: transcriptionData.meeting.subject,
+            meeting_date: transcriptionData.meeting.meeting_date,
+            duration: transcriptionData.meeting.duration,
+            url: transcriptionData.meeting.url,
+            attendees: transcriptionData.meeting.attendees,
+          },
+          meetingCounts: transcriptionData.meetingCounts || null,
+          cached: !!cached,
+          last_synced_at: cached?.last_synced_at || new Date().toISOString(),
+        });
 
   } catch (error) {
     console.error('Error in avoma-transcription function:', error);
