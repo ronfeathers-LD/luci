@@ -8,6 +8,49 @@
 // Constants
 const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
 const REQUEST_TIMEOUT = 30000; // 30 seconds
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+
+// Simple in-memory rate limiter (for production, use Redis or similar)
+const rateLimitStore = new Map();
+
+// Rate limiting helper
+const checkRateLimit = (ip) => {
+  const now = Date.now();
+  const key = ip;
+  
+  if (!rateLimitStore.has(key)) {
+    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+  
+  const record = rateLimitStore.get(key);
+  
+  // Reset if window expired
+  if (now > record.resetTime) {
+    record.count = 1;
+    record.resetTime = now + RATE_LIMIT_WINDOW;
+    return true;
+  }
+  
+  // Check if limit exceeded
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+  
+  record.count++;
+  return true;
+};
+
+// Clean up old entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitStore.entries()) {
+    if (now > record.resetTime) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, RATE_LIMIT_WINDOW);
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -23,6 +66,19 @@ export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Rate limiting
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || 
+                   req.headers['x-real-ip'] || 
+                   req.connection?.remoteAddress || 
+                   'unknown';
+  
+  if (!checkRateLimit(clientIp)) {
+    return res.status(429).json({ 
+      error: 'Too many requests. Please try again in a minute.',
+      retryAfter: 60
+    });
   }
 
   // Check request size

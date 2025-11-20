@@ -380,11 +380,15 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [sentiment, setSentiment] = useState(null);
+      const [retryCount, setRetryCount] = useState(0);
+      const maxRetries = 3;
 
-      const handleAnalyze = useCallback(async () => {
+      const handleAnalyze = useCallback(async (attempt = 0) => {
         setLoading(true);
         setError(null);
-        setSentiment(null);
+        if (attempt === 0) {
+          setSentiment(null);
+        }
 
         try {
           // Fetch data from both sources in parallel
@@ -396,9 +400,23 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
           // Analyze sentiment
           const result = await analyzeSentiment(transcription, salesforceContext);
           setSentiment(result);
+          setRetryCount(0);
+          analytics.track('sentiment_analyzed', { 
+            customerIdentifier,
+            score: result.score 
+          });
         } catch (err) {
-          setError(err.message || 'An error occurred while analyzing sentiment');
+          const errorMessage = err.message || 'An error occurred while analyzing sentiment';
+          setError(errorMessage);
           logError('Sentiment analysis error:', err);
+          
+          if (attempt < maxRetries && (err.message?.includes('timeout') || err.message?.includes('network'))) {
+            setRetryCount(attempt + 1);
+            analytics.track('sentiment_analysis_retry', { attempt: attempt + 1 });
+          } else {
+            setRetryCount(0);
+            analytics.track('sentiment_analysis_failed', { error: errorMessage });
+          }
         } finally {
           setLoading(false);
         }
@@ -499,9 +517,20 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                     </svg>
                   </div>
-                  <div className="ml-3">
+                  <div className="ml-3 flex-1">
                     <p className="text-sm text-red-700 font-medium">Error</p>
                     <p className="text-sm text-red-600 mt-1">{error}</p>
+                    {retryCount > 0 && retryCount < maxRetries && (
+                      <div className="mt-3">
+                        <button
+                          onClick={() => handleAnalyze(retryCount)}
+                          className="text-sm text-red-700 hover:text-red-900 font-medium underline"
+                          aria-label={`Retry analysis (attempt ${retryCount + 1} of ${maxRetries})`}
+                        >
+                          Retry ({retryCount}/{maxRetries})
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -548,6 +577,69 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       );
     };
 
+    // Error Boundary Component
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+
+      componentDidCatch(error, errorInfo) {
+        logError('Error Boundary caught an error:', error, errorInfo);
+      }
+
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
+              <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8 text-center">
+                <div className="mb-4">
+                  <svg className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
+                <p className="text-gray-600 mb-6">
+                  An unexpected error occurred. Please refresh the page to try again.
+                </p>
+                <button
+                  onClick={() => {
+                    this.setState({ hasError: false, error: null });
+                    window.location.reload();
+                  }}
+                  className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                >
+                  Refresh Page
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return this.props.children;
+      }
+    }
+
+    // Analytics helper (structure for future integration)
+    const analytics = {
+      track: (event, data) => {
+        if (isProduction) {
+          // In production, send to analytics service
+          // Example: gtag('event', event, data);
+          log('Analytics:', event, data);
+        } else {
+          log('Analytics (dev):', event, data);
+        }
+      },
+      pageView: (page) => {
+        analytics.track('page_view', { page });
+      }
+    };
+
     // Main App Component with Authentication
     const App = () => {
       const [user, setUser] = useState(() => {
@@ -565,10 +657,15 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         return null;
       });
 
+      useEffect(() => {
+        analytics.pageView(user ? 'dashboard' : 'login');
+      }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
       const handleSignIn = (userInfo) => {
         // Save user info to localStorage
         localStorage.setItem('userInfo', JSON.stringify(userInfo));
         setUser(userInfo);
+        analytics.track('user_signed_in', { email: userInfo.email });
       };
 
       if (!user) {
@@ -578,8 +675,25 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       return <SentimentAnalyzer user={user} />;
     };
 
+    // Register Service Worker for offline support
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((registration) => {
+            log('Service Worker registered:', registration.scope);
+          })
+          .catch((error) => {
+            logError('Service Worker registration failed:', error);
+          });
+      });
+    }
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    root.render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
   </script>
 </body>
 </html>
