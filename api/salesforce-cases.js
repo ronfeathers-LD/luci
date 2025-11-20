@@ -80,7 +80,7 @@ async function getCachedCases(supabase, salesforceAccountId) {
     .select('*')
     .eq('salesforce_account_id', salesforceAccountId)
     .order('created_date', { ascending: false })
-    .limit(10);
+    .limit(25);
 
   if (error || !cases || cases.length === 0) {
     return null;
@@ -108,11 +108,12 @@ async function querySalesforceCases(conn, salesforceAccountId) {
   const escapedAccountId = salesforceAccountId.replace(/'/g, "\\'");
   
   // Query recent cases for the account
+  // Increased limit to 25 to show more cases
   const caseQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description 
                      FROM Case 
                      WHERE AccountId = '${escapedAccountId}' 
                      ORDER BY CreatedDate DESC 
-                     LIMIT 10`;
+                     LIMIT 25`;
   
   try {
     const result = await conn.query(caseQuery);
