@@ -6,6 +6,7 @@ Based on your existing credentials, here's what you need to complete the setup.
 
 - **Login URL**: `https://leandata.my.salesforce.com`
 - **Username**: `sow.app.integration@leandata.com`
+- **Password**: ✅ You have this
 - **Security Token**: `o7VFJrMqGhCn8nu0DZuxLtIw`
 
 ## What You Still Need 🔑
@@ -25,11 +26,13 @@ Since you mentioned you already have API access on another app, you need to get 
 
 ### 2. Password for API User
 
-You'll need the password for `sow.app.integration@leandata.com`. If you don't have it:
-- Check with your Salesforce admin
-- Or reset it: **Setup** → **Users** → Find the user → **Reset Password**
+✅ **You have the password** - Make sure to add it to Vercel environment variables (see below).
+
+⚠️ **Security Note**: Never commit passwords to git. Only add them to Vercel environment variables.
 
 ## Environment Variables for Vercel
+
+**Ready to configure!** Add these to your Vercel project:
 
 Once you have all the credentials, add these to Vercel:
 
@@ -37,10 +40,22 @@ Once you have all the credentials, add these to Vercel:
 |--------------|-------|-------|
 | `SFDC_LOGIN_URL` | `https://leandata.my.salesforce.com` | Your custom domain |
 | `SFDC_USERNAME` | `sow.app.integration@leandata.com` | Your API username |
-| `SFDC_PASSWORD` | `[password for sow.app.integration@leandata.com]` | The user's password |
+| `SFDC_PASSWORD` | `S0wP@ssw0rd` | ⚠️ Add this in Vercel only, not in git |
 | `SFDC_SECURITY_TOKEN` | `o7VFJrMqGhCn8nu0DZuxLtIw` | Your security token |
-| `SFDC_CLIENT_ID` | `[Consumer Key from Connected App]` | From Step 1 above |
-| `SFDC_CLIENT_SECRET` | `[Consumer Secret from Connected App]` | From Step 1 above |
+| `SFDC_CLIENT_ID` | `[Consumer Key from Connected App]` | Get from existing Connected App |
+| `SFDC_CLIENT_SECRET` | `[Consumer Secret from Connected App]` | Get from existing Connected App |
+
+### Steps to Add in Vercel:
+
+1. Go to your Vercel project dashboard
+2. Navigate to **Settings** → **Environment Variables**
+3. Click **Add New** for each variable above
+4. For each variable:
+   - Paste the **Name** (exactly as shown)
+   - Paste the **Value** (use the password `S0wP@ssw0rd` for `SFDC_PASSWORD`)
+   - Select **All** environments (Production, Preview, Development)
+   - Click **Save**
+5. **Important**: After adding all variables, redeploy your application
 
 ## Important Notes
 
@@ -85,9 +100,22 @@ After setting up the environment variables:
 
 ## Next Steps
 
-1. ✅ Get Consumer Key/Secret from existing Connected App
-2. ✅ Get password for `sow.app.integration@leandata.com`
-3. ✅ Add all environment variables to Vercel
-4. ✅ Redeploy application
-5. ✅ Test the integration
+1. ✅ Get Consumer Key/Secret from existing Connected App (see Step 1 above)
+2. ✅ Password is ready: `S0wP@ssw0rd`
+3. ⏳ Add all environment variables to Vercel (see table above)
+4. ⏳ Redeploy application after adding variables
+5. ⏳ Test the integration
+
+## Quick Checklist
+
+- [ ] Get Consumer Key from existing Connected App
+- [ ] Get Consumer Secret from existing Connected App  
+- [ ] Add `SFDC_LOGIN_URL` = `https://leandata.my.salesforce.com`
+- [ ] Add `SFDC_USERNAME` = `sow.app.integration@leandata.com`
+- [ ] Add `SFDC_PASSWORD` = `S0wP@ssw0rd`
+- [ ] Add `SFDC_SECURITY_TOKEN` = `o7VFJrMqGhCn8nu0DZuxLtIw`
+- [ ] Add `SFDC_CLIENT_ID` = `[from Connected App]`
+- [ ] Add `SFDC_CLIENT_SECRET` = `[from Connected App]`
+- [ ] Redeploy application
+- [ ] Test by signing in and checking if accounts load
 
