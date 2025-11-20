@@ -4,50 +4,31 @@ This document lists all mock data currently in use and their purposes.
 
 ## 1. Avoma Transcription Mock (`index.html`)
 
-**Location:** `index.html` - `fetchAvomaData()` function (lines ~74-101)
+**Location:** `index.html` - `fetchAvomaData()` function
 
 **Purpose:** Simulates Avoma API call for transcription data
 
-**Current Implementation:**
-- Hardcoded conversation transcript
-- 500ms simulated delay
-- Returns a sample customer conversation showing sentiment journey
+**Status:** ✅ **REPLACED** - Now uses real Avoma API with caching
 
-**Status:** ⚠️ **Still Mock** - Needs real Avoma API integration
-
-**Action Required:**
-- Replace with actual Avoma API call
-- Create `/api/avoma-transcription` endpoint
-- Pass customer identifier to fetch real transcription
+**Implementation:**
+- Calls `/api/avoma-transcription` endpoint
+- Caches transcriptions in Supabase for 24 hours
+- Only calls Avoma API when cache is stale or missing
 
 ---
 
 ## 2. Salesforce Context Mock (`index.html`)
 
-**Location:** `index.html` - `fetchSalesforceData()` function (lines ~103-148)
+**Location:** `index.html` - `fetchSalesforceData()` function
 
-**Purpose:** Simulates Salesforce API call for customer context
+**Purpose:** Fetches Salesforce customer context
 
-**Current Implementation:**
-- Uses real account data if available (from selected account)
-- Falls back to hardcoded defaults if no account data
-- Includes mock tickets, dates, NPS score
+**Status:** ✅ **CLEANED UP** - Now uses only real account data
 
-**Status:** ⚠️ **Partially Mock** - Uses real account data but adds mock supplemental data
-
-**Mock Data Includes:**
-- `contract_start_date`: "2023-01-15"
-- `renewal_date`: "2025-01-15"
-- `recent_tickets`: Hardcoded array of 2 tickets
-- `customer_since`: "2023-01-15"
-- `nps_score`: 7
-- `last_interaction`: "2024-09-15"
-
-**Action Required:**
-- Fetch real tickets from Salesforce
-- Fetch real contract dates from Salesforce
-- Fetch real NPS score from Salesforce
-- Fetch real last interaction date
+**Implementation:**
+- Uses real account data from selected Salesforce account
+- Returns only actual fields: tier, contract value, name, industry, revenue, manager
+- Removed all mock supplemental data (tickets, dates, NPS)
 
 ---
 
@@ -89,13 +70,13 @@ This document lists all mock data currently in use and their purposes.
 
 ## Summary
 
-### High Priority (Replace with Real APIs)
-1. ✅ **Avoma Transcription** - Replace with real Avoma API
-2. ✅ **Salesforce Supplemental Data** - Replace tickets, dates, NPS with real Salesforce queries
+### ✅ Completed
+1. ✅ **Avoma Transcription** - Replaced with real Avoma API + caching
+2. ✅ **Salesforce Context** - Removed mock supplemental data, uses only real account data
 
 ### Low Priority (Keep as Fallbacks)
-3. ✅ **API Mock Accounts** - Keep for development, remove in production
-4. ✅ **API Mock Users** - Keep for development, remove in production
+3. ✅ **API Mock Accounts** - Keep for development/testing (only used when Supabase not configured)
+4. ✅ **API Mock Users** - Keep for development/testing (only used when Supabase not configured)
 
 ---
 
