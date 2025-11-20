@@ -3,7 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Customer Pulse Dashboard - Analyze customer sentiment from Avoma transcripts and Salesforce context using AI-powered sentiment analysis">
+  <meta name="keywords" content="customer sentiment, sentiment analysis, customer experience, Avoma, Salesforce">
+  <meta name="author" content="LeanData">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Customer Pulse Dashboard">
+  <meta property="og:description" content="AI-powered customer sentiment analysis from Avoma transcripts and Salesforce context">
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Customer Pulse Dashboard">
+  <meta name="twitter:description" content="AI-powered customer sentiment analysis">
+  
   <title>Customer Pulse Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -25,7 +40,28 @@
     const { useState, useCallback, useEffect, useRef } = React;
 
     // Google OAuth Configuration
-    const GOOGLE_CLIENT_ID = '160384595408-625gmnr4j40cgjp44qkfljoeo6i0n7j9.apps.googleusercontent.com';
+    // In production, consider moving this to an environment variable
+    const GOOGLE_CLIENT_ID = window.GOOGLE_CLIENT_ID || '160384595408-625gmnr4j40cgjp44qkfljoeo6i0n7j9.apps.googleusercontent.com';
+    
+    // Constants
+    const MAX_RETRIES = 50;
+    const MAX_INIT_ATTEMPTS = 100;
+    const RETRY_DELAY = 100;
+    const INIT_DELAY = 100;
+    
+    // Production check
+    const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+    
+    // Console logging helper (disabled in production)
+    const log = (...args) => {
+      if (!isProduction) {
+        console.log(...args);
+      }
+    };
+    
+    const logError = (...args) => {
+      console.error(...args); // Always log errors
+    };
 
     /**
      * Customer Sentiment Analyzer
@@ -162,7 +198,6 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       const [isLoading, setIsLoading] = useState(true);
       const [error, setError] = useState(null);
       const retryCountRef = useRef(0);
-      const maxRetries = 50; // 5 seconds max wait time
       const [buttonReady, setButtonReady] = useState(false);
 
       const handleCredentialResponse = useCallback((response) => {
@@ -179,7 +214,7 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
           const userInfo = JSON.parse(jsonPayload);
           onSignIn(userInfo);
         } catch (error) {
-          console.error('Error decoding credential:', error);
+          logError('Error decoding credential:', error);
           setError('Error signing in. Please try again.');
         }
       }, [onSignIn]);
@@ -188,7 +223,6 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       useEffect(() => {
         let isMounted = true;
         let initAttempts = 0;
-        const maxInitAttempts = 100; // 10 seconds max
 
         const waitForGoogleAndInit = () => {
           initAttempts++;
@@ -200,24 +234,24 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                 client_id: GOOGLE_CLIENT_ID,
                 callback: handleCredentialResponse,
               });
-              console.log('Google Sign-In initialized successfully');
+              log('Google Sign-In initialized successfully');
               
               // Now try to render the button
               if (isMounted) {
                 renderButton();
               }
             } catch (err) {
-              console.error('Error initializing Google Sign-In:', err);
+              logError('Error initializing Google Sign-In:', err);
               if (isMounted) {
                 setError(`Failed to initialize: ${err.message}`);
                 setIsLoading(false);
               }
             }
-          } else if (initAttempts < maxInitAttempts) {
+          } else if (initAttempts < MAX_INIT_ATTEMPTS) {
             // Keep waiting for Google Identity Services to load
-            setTimeout(waitForGoogleAndInit, 100);
+            setTimeout(waitForGoogleAndInit, INIT_DELAY);
           } else {
-            console.error('Google Identity Services failed to load after', maxInitAttempts, 'attempts');
+            logError('Google Identity Services failed to load after', MAX_INIT_ATTEMPTS, 'attempts');
             if (isMounted) {
               setError('Google Sign-In script failed to load. Please check your internet connection and refresh the page.');
               setIsLoading(false);
@@ -228,9 +262,9 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         const renderButton = () => {
           if (!isMounted || !buttonReady) {
             // Wait for button to be ready
-            if (retryCountRef.current < maxRetries) {
+            if (retryCountRef.current < MAX_RETRIES) {
               retryCountRef.current++;
-              setTimeout(renderButton, 100);
+              setTimeout(renderButton, RETRY_DELAY);
             }
             return;
           }
@@ -249,33 +283,33 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                   text: 'signin_with',
                 }
               );
-              console.log('Google Sign-In button rendered successfully');
+              log('Google Sign-In button rendered successfully');
               setIsLoading(false);
             } catch (err) {
-              console.error('Error rendering button:', err);
+              logError('Error rendering button:', err);
               if (isMounted) {
                 setError(`Failed to render button: ${err.message}. Please check that your domain is authorized in Google OAuth settings.`);
                 setIsLoading(false);
               }
             }
-          } else if (retryCountRef.current < maxRetries) {
+          } else if (retryCountRef.current < MAX_RETRIES) {
             retryCountRef.current++;
-            setTimeout(renderButton, 100);
+            setTimeout(renderButton, RETRY_DELAY);
           } else {
             if (!buttonRef.current) {
-              console.error('Button ref is null');
+              logError('Button ref is null');
               if (isMounted) {
                 setError('Button element not found. Please refresh the page.');
                 setIsLoading(false);
               }
             } else if (!window.google || !window.google.accounts) {
-              console.error('Google Identity Services not loaded');
+              logError('Google Identity Services not loaded');
               if (isMounted) {
                 setError('Google Sign-In script not loaded. Please check your connection.');
                 setIsLoading(false);
               }
             } else {
-              console.error('Unknown error rendering button');
+              logError('Unknown error rendering button');
               if (isMounted) {
                 setError('Failed to load sign-in button. Please refresh the page.');
                 setIsLoading(false);
@@ -364,7 +398,7 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
           setSentiment(result);
         } catch (err) {
           setError(err.message || 'An error occurred while analyzing sentiment');
-          console.error('Sentiment analysis error:', err);
+          logError('Sentiment analysis error:', err);
         } finally {
           setLoading(false);
         }
@@ -433,11 +467,16 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                   placeholder="Enter customer identifier"
                   disabled={loading}
+                  aria-label="Customer ID or Account Name"
+                  aria-required="true"
+                  maxLength={200}
                 />
                 <button
                   onClick={handleAnalyze}
                   disabled={loading}
                   className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 min-w-[140px] justify-center"
+                  aria-label={loading ? 'Analyzing sentiment' : 'Analyze customer sentiment'}
+                  aria-busy={loading}
                 >
                   {loading ? (
                     <>
@@ -453,9 +492,9 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
 
             {/* Error Display */}
             {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-6">
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg mb-6" role="alert" aria-live="polite">
                 <div className="flex">
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0" aria-hidden="true">
                     <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                     </svg>
@@ -470,10 +509,10 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
 
             {/* Results Display */}
             {sentiment && (
-              <div className="bg-white rounded-lg shadow-lg p-8">
+              <div className="bg-white rounded-lg shadow-lg p-8" role="region" aria-live="polite" aria-label="Sentiment analysis results">
                 {/* Score Display */}
-                <div className={`text-center mb-6 p-8 rounded-xl border-2 ${getScoreColor(sentiment.score)}`}>
-                  <div className="text-6xl font-bold mb-2">
+                <div className={`text-center mb-6 p-8 rounded-xl border-2 ${getScoreColor(sentiment.score)}`} role="status">
+                  <div className="text-6xl font-bold mb-2" aria-label={`Sentiment score: ${sentiment.score} out of 10`}>
                     {sentiment.score}
                   </div>
                   <div className="text-xl font-semibold text-gray-600">
@@ -518,7 +557,7 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
           try {
             return JSON.parse(savedUser);
           } catch (error) {
-            console.error('Error parsing saved user info:', error);
+            logError('Error parsing saved user info:', error);
             localStorage.removeItem('userInfo');
             return null;
           }

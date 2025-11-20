@@ -5,10 +5,30 @@
  * protecting the API key from client-side exposure.
  */
 
+// Constants
+const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
+const REQUEST_TIMEOUT = 30000; // 30 seconds
+
 export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
   // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Check request size
+  const contentLength = req.headers['content-length'];
+  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
+    return res.status(413).json({ error: 'Request too large' });
   }
 
   // Get API key from environment variable
@@ -25,8 +45,22 @@ export default async function handler(req, res) {
   if (!transcription || !salesforceContext) {
     return res.status(400).json({ error: 'Missing required parameters: transcription and salesforceContext' });
   }
-
+  
+  // Validate input types and sizes
+  if (typeof transcription !== 'string' || transcription.length > 50000) {
+    return res.status(400).json({ error: 'Invalid transcription: must be a string under 50,000 characters' });
+  }
+  
+  if (typeof salesforceContext !== 'object' || salesforceContext === null) {
+    return res.status(400).json({ error: 'Invalid salesforceContext: must be an object' });
+  }
+  
   try {
+    // Create a promise with timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout')), REQUEST_TIMEOUT);
+    });
+    
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
     
     const requestBody = {
@@ -99,7 +133,8 @@ Please provide a sentiment analysis based on the customer's overall experience, 
       }
     };
 
-    const response = await retryFetch(async () => {
+    // Race between the fetch and timeout
+    const fetchPromise = retryFetch(async () => {
       return fetch(url, {
         method: 'POST',
         headers: {
@@ -108,6 +143,8 @@ Please provide a sentiment analysis based on the customer's overall experience, 
         body: JSON.stringify(requestBody)
       });
     });
+    
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
 
     const data = await response.json();
     
@@ -131,7 +168,18 @@ Please provide a sentiment analysis based on the customer's overall experience, 
     return res.status(200).json(result);
   } catch (error) {
     console.error('Error in analyze-sentiment function:', error);
-    return res.status(500).json({ error: error.message || 'An error occurred while analyzing sentiment' });
+    
+    // Handle timeout specifically
+    if (error.message === 'Request timeout') {
+      return res.status(504).json({ error: 'Request timeout' });
+    }
+    
+    // Don't expose internal error details in production
+    const errorMessage = process.env.NODE_ENV === 'production' 
+      ? 'An error occurred while analyzing sentiment'
+      : error.message || 'An error occurred while analyzing sentiment';
+    
+    return res.status(500).json({ error: errorMessage });
   }
 }
 
