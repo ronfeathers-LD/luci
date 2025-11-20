@@ -110,14 +110,30 @@ async function fetchFromAvoma(avomaClient, meetingUuid) {
     throw new Error('Transcript is not ready for this meeting');
   }
 
+  // Use transcription_uuid if available, otherwise use meeting UUID
+  // (transcription UUID can be different from meeting UUID)
+  const transcriptUuid = meeting.transcription_uuid || meetingUuid;
+  
   // Get transcript text
-  const transcriptResult = await avomaClient.getMeetingTranscriptText(meetingUuid);
+  let transcriptResult;
+  try {
+    transcriptResult = await avomaClient.getMeetingTranscriptText(transcriptUuid);
+  } catch (transcriptError) {
+    // If transcription_uuid fails, try with meeting UUID as fallback
+    if (transcriptUuid !== meetingUuid) {
+      console.warn(`Failed to get transcript with transcription_uuid ${transcriptUuid}, trying meeting UUID ${meetingUuid}`);
+      transcriptResult = await avomaClient.getMeetingTranscriptText(meetingUuid);
+    } else {
+      throw transcriptError;
+    }
+  }
   
   return {
     transcription: transcriptResult.text,
     speakers: transcriptResult.speakers,
     meeting: {
       uuid: meetingUuid,
+      transcription_uuid: meeting.transcription_uuid || meetingUuid,
       subject: meeting.subject,
       start_at: meeting.start_at,
       meeting_date: meeting.start_at ? new Date(meeting.start_at) : null,
