@@ -111,6 +111,7 @@ async function authenticateSalesforce(supabase) {
 /**
  * Query Salesforce for accounts based on user role/ownership
  * Uses standard fields only (custom fields may not exist in all orgs)
+ * Note: Salesforce doesn't allow semi-join subqueries with OR, so we query separately and combine
  */
 async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // First, get the Salesforce User ID for the email (needed for AccountTeamMember query)
@@ -128,69 +129,118 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
     console.warn(`Could not find Salesforce User for email ${userEmail}:`, error.message);
   }
   
-  // Build SOQL query based on user role
-  // Use standard fields only - custom fields will be null if they don't exist
-  // We'll try to include custom fields but handle gracefully if they fail
+  // Field selection - try custom fields first, fallback to standard
+  const customFields = `Id, Name, Account_Tier__c, Contract_Value__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
+  const standardFields = `Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
   
-  let soqlQuery;
-  
-  // First, try with custom fields
-  const customFieldsQuery = `
-    SELECT Id, Name, Account_Tier__c, Contract_Value__c, Industry, 
-           AnnualRevenue, OwnerId, Owner.Name, Owner.Email
-    FROM Account
-  `;
-  
-  // Standard fields only (fallback)
-  const standardFieldsQuery = `
-    SELECT Id, Name, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email
-    FROM Account
-  `;
+  let useCustomFields = true;
+  let allAccounts = [];
+  const accountMap = new Map(); // Use Map to deduplicate by Account Id
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
-    // Build WHERE clause - avoid nested subqueries
-    let whereConditions = [`Owner.Email = '${userEmail}'`];
-    
-    // Add AccountTeamMember condition if we found the User ID
-    if (salesforceUserId) {
-      whereConditions.push(`Id IN (SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}')`);
-    }
-    
-    const whereClause = `WHERE ${whereConditions.join(' OR ')} ORDER BY Name LIMIT 100`;
-    
-    soqlQuery = customFieldsQuery + whereClause;
-  } else {
-    // For admins or other roles, get all accounts (adjust as needed)
-    soqlQuery = customFieldsQuery + ` ORDER BY Name LIMIT 100`;
-  }
-
-  try {
-    const result = await conn.query(soqlQuery);
-    return result.records || [];
-  } catch (error) {
-    // If custom fields don't exist, try with standard fields only
-    if (error.errorCode === 'INVALID_FIELD') {
-      console.warn('Custom fields not found, using standard fields only');
+    // Query 1: Accounts owned by user (by Owner.Email)
+    try {
+      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${userEmail}' ORDER BY Name LIMIT 100`;
       
-      if (role === 'Account Manager' || role === 'Sales Rep') {
-        let whereConditions = [`Owner.Email = '${userEmail}'`];
-        
-        // Add AccountTeamMember condition if we found the User ID
-        if (salesforceUserId) {
-          whereConditions.push(`Id IN (SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}')`);
+      try {
+        const ownerResult = await conn.query(ownerQuery);
+        if (ownerResult.records) {
+          ownerResult.records.forEach(acc => {
+            accountMap.set(acc.Id, acc);
+          });
+          console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
         }
-        
-        const whereClause = `WHERE ${whereConditions.join(' OR ')} ORDER BY Name LIMIT 100`;
-        soqlQuery = standardFieldsQuery + whereClause;
-      } else {
-        soqlQuery = standardFieldsQuery + ` ORDER BY Name LIMIT 100`;
+      } catch (error) {
+        if (error.errorCode === 'INVALID_FIELD') {
+          console.warn('Custom fields not found, using standard fields only');
+          useCustomFields = false;
+          ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${userEmail}' ORDER BY Name LIMIT 100`;
+          const ownerResult = await conn.query(ownerQuery);
+          if (ownerResult.records) {
+            ownerResult.records.forEach(acc => {
+              accountMap.set(acc.Id, acc);
+            });
+            console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
+          }
+        } else {
+          throw error;
+        }
       }
-      
-      const result = await conn.query(soqlQuery);
-      return result.records || [];
+    } catch (error) {
+      console.error('Error querying accounts by owner:', error);
     }
-    throw error;
+    
+    // Query 2: Accounts from AccountTeamMember (if we have User ID)
+    if (salesforceUserId) {
+      try {
+        // First get Account IDs from AccountTeamMember
+        const teamMemberQuery = `SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}' LIMIT 100`;
+        const teamResult = await conn.query(teamMemberQuery);
+        
+        if (teamResult.records && teamResult.records.length > 0) {
+          const accountIds = teamResult.records.map(tm => tm.AccountId);
+          console.log(`Found ${accountIds.length} accounts in AccountTeamMember`);
+          
+          // Query accounts by IDs (Salesforce allows up to 200 IDs in IN clause)
+          const fields = useCustomFields ? customFields : standardFields;
+          const idsString = accountIds.map(id => `'${id}'`).join(',');
+          const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) ORDER BY Name`;
+          
+          try {
+            const accountResult = await conn.query(accountQuery);
+            if (accountResult.records) {
+              accountResult.records.forEach(acc => {
+                accountMap.set(acc.Id, acc);
+              });
+              console.log(`Found ${accountResult.records.length} accounts from AccountTeamMember`);
+            }
+          } catch (error) {
+            if (error.errorCode === 'INVALID_FIELD' && useCustomFields) {
+              // Retry with standard fields
+              const standardAccountQuery = `SELECT ${standardFields} FROM Account WHERE Id IN (${idsString}) ORDER BY Name`;
+              const accountResult = await conn.query(standardAccountQuery);
+              if (accountResult.records) {
+                accountResult.records.forEach(acc => {
+                  accountMap.set(acc.Id, acc);
+                });
+              }
+            } else {
+              console.error('Error querying accounts from AccountTeamMember:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error querying AccountTeamMember:', error);
+      }
+    }
+    
+    // Convert Map to array
+    allAccounts = Array.from(accountMap.values());
+    
+  } else {
+    // For admins or other roles, get all accounts
+    try {
+      let adminQuery = `SELECT ${customFields} FROM Account ORDER BY Name LIMIT 100`;
+      try {
+        const result = await conn.query(adminQuery);
+        allAccounts = result.records || [];
+      } catch (error) {
+        if (error.errorCode === 'INVALID_FIELD') {
+          console.warn('Custom fields not found, using standard fields only');
+          adminQuery = `SELECT ${standardFields} FROM Account ORDER BY Name LIMIT 100`;
+          const result = await conn.query(adminQuery);
+          allAccounts = result.records || [];
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      console.error('Error querying all accounts:', error);
+      throw error;
+    }
   }
+  
+  return allAccounts;
 }
 
 /**
