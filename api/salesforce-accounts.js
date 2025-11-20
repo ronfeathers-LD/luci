@@ -590,8 +590,9 @@ export default async function handler(req, res) {
         const sfdcAuth = await authenticateSalesforce(supabase);
         const searchResults = await searchSalesforceAccounts(sfdcAuth.connection, search);
         
-        // Sync search results to Supabase (for caching) - userId is optional for search
-        const syncedAccounts = await syncAccountsToSupabase(supabase, searchResults, userId || null);
+        // Sync search results to Supabase (for caching) - but don't create user relationships
+        // Pass createRelationships=false so searched accounts aren't associated with the searching user
+        const syncedAccounts = await syncAccountsToSupabase(supabase, searchResults, null, false);
         
         const accounts = syncedAccounts.map(acc => ({
           id: acc.salesforce_id || acc.id,
