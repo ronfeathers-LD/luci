@@ -163,6 +163,7 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
       const [error, setError] = useState(null);
       const retryCountRef = useRef(0);
       const maxRetries = 50; // 5 seconds max wait time
+      const [buttonReady, setButtonReady] = useState(false);
 
       const handleCredentialResponse = useCallback((response) => {
         // Decode the JWT token to get user info
@@ -225,7 +226,14 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         };
 
         const renderButton = () => {
-          if (!isMounted) return;
+          if (!isMounted || !buttonReady) {
+            // Wait for button to be ready
+            if (retryCountRef.current < maxRetries) {
+              retryCountRef.current++;
+              setTimeout(renderButton, 100);
+            }
+            return;
+          }
           
           if (buttonRef.current && window.google && window.google.accounts && window.google.accounts.id) {
             try {
@@ -282,7 +290,14 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
         return () => {
           isMounted = false;
         };
-      }, [handleCredentialResponse]);
+      }, [handleCredentialResponse, buttonReady]);
+
+      // Set button ready when ref is attached
+      useEffect(() => {
+        if (buttonRef.current) {
+          setButtonReady(true);
+        }
+      }, []);
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
@@ -296,12 +311,17 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
               </p>
             </div>
             <div className="space-y-4">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center py-4">
-                  <LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mb-2" />
-                  <p className="text-sm text-gray-500">Loading sign-in...</p>
+              {/* Always render the button container so ref is available */}
+              <div ref={buttonRef} className="w-full" style={{ minHeight: '40px' }}></div>
+              
+              {isLoading && (
+                <div className="flex flex-col items-center justify-center py-2">
+                  <LoaderIcon className="w-5 h-5 animate-spin text-blue-600 mb-1" />
+                  <p className="text-xs text-gray-500">Loading sign-in...</p>
                 </div>
-              ) : error ? (
+              )}
+              
+              {error && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <p className="text-sm text-red-700">{error}</p>
                   <button
@@ -311,8 +331,6 @@ Rep: You're very welcome. Thank you for your patience, and please don't hesitate
                     Refresh page
                   </button>
                 </div>
-              ) : (
-                <div ref={buttonRef} className="w-full" style={{ minHeight: '40px' }}></div>
               )}
             </div>
             <p className="text-xs text-gray-500 text-center mt-6">
