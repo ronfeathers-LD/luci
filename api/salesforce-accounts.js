@@ -2,7 +2,8 @@
  * Vercel Serverless Function for Salesforce Account Fetching
  * 
  * Fetches accounts from Salesforce assigned to a user based on their role
- * Uses Supabase to store and retrieve account assignments
+ * Uses Supabase to store credentials and account assignments
+ * Uses jsforce library (same as SOW-Generator) - no Client ID/Secret needed!
  */
 
 // Helper function to get Supabase client
@@ -26,69 +27,81 @@ function getSupabaseClient() {
   return null;
 }
 
+// Helper function to get jsforce client
+function getJsforceClient() {
+  try {
+    const jsforce = require('jsforce');
+    return jsforce;
+  } catch (error) {
+    console.warn('jsforce not available:', error.message);
+    return null;
+  }
+}
+
 /**
- * Authenticate with Salesforce using Username-Password OAuth flow
+ * Authenticate with Salesforce using jsforce (same as SOW-Generator)
  */
-async function authenticateSalesforce() {
-  const username = process.env.SFDC_USERNAME;
-  const password = process.env.SFDC_PASSWORD;
-  const securityToken = process.env.SFDC_SECURITY_TOKEN;
-  const clientId = process.env.SFDC_CLIENT_ID;
-  const clientSecret = process.env.SFDC_CLIENT_SECRET;
-  const loginUrl = process.env.SFDC_LOGIN_URL || 'https://login.salesforce.com';
+async function authenticateSalesforce(supabase) {
+  // Get Salesforce config from Supabase (same pattern as SOW-Generator)
+  const { data: config, error: configError } = await supabase
+    .from('salesforce_configs')
+    .select('*')
+    .eq('is_active', true)
+    .single();
 
-  if (!username || !password || !clientId || !clientSecret) {
-    throw new Error('Salesforce credentials not configured');
+  if (configError || !config) {
+    throw new Error('Salesforce configuration not found in Supabase. Please configure it in the admin panel.');
   }
 
-  // Construct the password (password + security token if provided)
-  const fullPassword = securityToken ? `${password}${securityToken}` : password;
-
-  // OAuth token endpoint
-  const tokenUrl = `${loginUrl}/services/oauth2/token`;
-
-  const params = new URLSearchParams({
-    grant_type: 'password',
-    client_id: clientId,
-    client_secret: clientSecret,
-    username: username,
-    password: fullPassword,
-  });
-
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString(),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Salesforce authentication failed: ${response.status} - ${errorText}`);
+  const jsforce = getJsforceClient();
+  if (!jsforce) {
+    throw new Error('jsforce library not available');
   }
 
-  const data = await response.json();
+  // Clean login URL (handle custom domains like leandata.my.salesforce.com)
+  let loginUrl = config.login_url || 'https://login.salesforce.com';
+  loginUrl = loginUrl.trim().replace(/\/$/, '');
+  
+  // For custom domains ending in .my.salesforce.com, keep as-is
+  // jsforce will handle the authentication
+  if (!loginUrl.startsWith('http://') && !loginUrl.startsWith('https://')) {
+    loginUrl = 'https://' + loginUrl;
+  }
+
+  // Create connection
+  const conn = new jsforce.Connection({
+    loginUrl: loginUrl
+  });
+
+  // Authenticate (jsforce handles OAuth internally - no Client ID/Secret needed!)
+  try {
+    await conn.login(config.username, config.password + (config.security_token || ''));
+  } catch (error) {
+    // Try with password only if first attempt fails
+    if (error.message && error.message.includes('INVALID_LOGIN')) {
+      await conn.login(config.username, config.password);
+    } else {
+      throw error;
+    }
+  }
+
   return {
-    accessToken: data.access_token,
-    instanceUrl: data.instance_url,
-    tokenType: data.token_type,
+    connection: conn,
+    instanceUrl: conn.instanceUrl,
+    accessToken: conn.accessToken,
   };
 }
 
 /**
  * Query Salesforce for accounts based on user role/ownership
  */
-async function querySalesforceAccounts(accessToken, instanceUrl, userId, userEmail, role) {
+async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // Build SOQL query based on user role
   // For Account Managers, get accounts where they are the owner or team member
-  // Adjust the query based on your Salesforce sharing rules and role hierarchy
-  
   let soqlQuery;
   
   if (role === 'Account Manager' || role === 'Sales Rep') {
     // Query accounts owned by user or in their territory
-    // This assumes you have a way to map SFDC user to our user (by email)
     soqlQuery = `
       SELECT Id, Name, Account_Tier__c, Contract_Value__c, Industry, 
              AnnualRevenue, OwnerId, Owner.Name, Owner.Email
@@ -115,23 +128,8 @@ async function querySalesforceAccounts(accessToken, instanceUrl, userId, userEma
     `;
   }
 
-  const queryUrl = `${instanceUrl}/services/data/v58.0/query?q=${encodeURIComponent(soqlQuery)}`;
-
-  const response = await fetch(queryUrl, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Salesforce query failed: ${response.status} - ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.records || [];
+  const result = await conn.query(soqlQuery);
+  return result.records || [];
 }
 
 /**
@@ -369,10 +367,9 @@ export default async function handler(req, res) {
     let useCached = false;
 
     try {
-      const sfdcAuth = await authenticateSalesforce();
+      const sfdcAuth = await authenticateSalesforce(supabase);
       const sfdcAccounts = await querySalesforceAccounts(
-        sfdcAuth.accessToken,
-        sfdcAuth.instanceUrl,
+        sfdcAuth.connection,
         user.id,
         user.email,
         user.role || role
@@ -433,4 +430,3 @@ export default async function handler(req, res) {
     });
   }
 }
-

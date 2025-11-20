@@ -62,11 +62,31 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+-- Salesforce configs table (for storing Salesforce credentials)
+CREATE TABLE IF NOT EXISTS salesforce_configs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  username TEXT NOT NULL,
+  password TEXT NOT NULL,
+  security_token TEXT,
+  login_url TEXT DEFAULT 'https://login.salesforce.com',
+  is_active BOOLEAN DEFAULT true,
+  last_tested TIMESTAMP WITH TIME ZONE,
+  last_error TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create index on is_active for faster lookups
+CREATE INDEX IF NOT EXISTS idx_salesforce_configs_is_active ON salesforce_configs(is_active);
+
 -- Triggers to automatically update updated_at
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_accounts_updated_at BEFORE UPDATE ON accounts
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_salesforce_configs_updated_at BEFORE UPDATE ON salesforce_configs
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Row Level Security (RLS) policies
@@ -83,5 +103,8 @@ CREATE POLICY "Service role full access" ON accounts
   FOR ALL USING (true);
 
 CREATE POLICY "Service role full access" ON user_accounts
+  FOR ALL USING (true);
+
+CREATE POLICY "Service role full access" ON salesforce_configs
   FOR ALL USING (true);
 
