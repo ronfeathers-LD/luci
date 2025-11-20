@@ -5,26 +5,8 @@
  * Uses Supabase for data persistence
  */
 
-// Helper function to get Supabase client
-function getSupabaseClient() {
-  try {
-    const { createClient } = require('@supabase/supabase-js');
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (supabaseUrl && supabaseServiceKey) {
-      return createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      });
-    }
-  } catch (error) {
-    console.warn('Supabase client not available:', error.message);
-  }
-  return null;
-}
+// Import shared Supabase client utility
+const { getSupabaseClient } = require('../lib/supabase-client');
 
 export default async function handler(req, res) {
   // Set CORS headers

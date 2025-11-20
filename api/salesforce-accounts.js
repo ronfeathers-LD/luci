@@ -6,26 +6,8 @@
  * Uses jsforce library (same as SOW-Generator) - no Client ID/Secret needed!
  */
 
-// Helper function to get Supabase client
-function getSupabaseClient() {
-  try {
-    const { createClient } = require('@supabase/supabase-js');
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (supabaseUrl && supabaseServiceKey) {
-      return createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      });
-    }
-  } catch (error) {
-    console.warn('Supabase client not available:', error.message);
-  }
-  return null;
-}
+// Import shared Supabase client utility
+const { getSupabaseClient } = require('../lib/supabase-client');
 
 // Helper function to get jsforce client
 function getJsforceClient() {
@@ -59,12 +41,14 @@ async function authenticateSalesforce(supabase) {
     throw new Error('Salesforce configuration not found in Supabase. Please insert credentials into salesforce_configs table.');
   }
   
-  console.log('Salesforce config found:', {
-    username: config.username,
-    login_url: config.login_url,
-    has_password: !!config.password,
-    has_security_token: !!config.security_token,
-  });
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Salesforce config found:', {
+      username: config.username,
+      login_url: config.login_url,
+      has_password: !!config.password,
+      has_security_token: !!config.security_token,
+    });
+  }
 
   const jsforce = getJsforceClient();
   if (!jsforce) {
@@ -72,7 +56,9 @@ async function authenticateSalesforce(supabase) {
     throw new Error('jsforce library not available. Make sure jsforce is installed: npm install jsforce');
   }
   
-  console.log('jsforce library loaded successfully');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('jsforce library loaded successfully');
+  }
 
   // Clean login URL (handle custom domains like leandata.my.salesforce.com)
   let loginUrl = config.login_url || 'https://login.salesforce.com';
@@ -113,15 +99,26 @@ async function authenticateSalesforce(supabase) {
  * Uses standard fields only (custom fields may not exist in all orgs)
  * Note: Salesforce doesn't allow semi-join subqueries with OR, so we query separately and combine
  */
+/**
+ * Escape single quotes in SOQL queries to prevent injection
+ */
+function escapeSOQL(str) {
+  if (!str) return '';
+  return str.replace(/'/g, "\\'");
+}
+
 async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // First, get the Salesforce User ID for the email (needed for AccountTeamMember query)
   let salesforceUserId = null;
   try {
-    const userQuery = `SELECT Id FROM User WHERE Email = '${userEmail}' LIMIT 1`;
+    const escapedEmail = escapeSOQL(userEmail);
+    const userQuery = `SELECT Id FROM User WHERE Email = '${escapedEmail}' LIMIT 1`;
     const userResult = await conn.query(userQuery);
     if (userResult.records && userResult.records.length > 0) {
       salesforceUserId = userResult.records[0].Id;
-      console.log(`Found Salesforce User ID: ${salesforceUserId} for email: ${userEmail}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`Found Salesforce User ID: ${salesforceUserId} for email: ${userEmail}`);
+      }
     } else {
       console.warn(`No Salesforce User found for email: ${userEmail}`);
     }
@@ -140,7 +137,8 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   if (role === 'Account Manager' || role === 'Sales Rep') {
     // Query 1: Accounts owned by user (by Owner.Email)
     try {
-      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${userEmail}' ORDER BY Name LIMIT 100`;
+      const escapedEmail = escapeSOQL(userEmail);
+      let ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
       
       try {
         const ownerResult = await conn.query(ownerQuery);
@@ -148,19 +146,23 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           ownerResult.records.forEach(acc => {
             accountMap.set(acc.Id, acc);
           });
-          console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
+          }
         }
-      } catch (error) {
-        if (error.errorCode === 'INVALID_FIELD') {
-          console.warn('Custom fields not found, using standard fields only');
-          useCustomFields = false;
-          ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${userEmail}' ORDER BY Name LIMIT 100`;
+        } catch (error) {
+          if (error.errorCode === 'INVALID_FIELD') {
+            console.warn('Custom fields not found, using standard fields only');
+            useCustomFields = false;
+            ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
           const ownerResult = await conn.query(ownerQuery);
           if (ownerResult.records) {
             ownerResult.records.forEach(acc => {
               accountMap.set(acc.Id, acc);
             });
+            if (process.env.NODE_ENV !== 'production') {
             console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
+          }
           }
         } else {
           throw error;
@@ -179,11 +181,14 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         
         if (teamResult.records && teamResult.records.length > 0) {
           const accountIds = teamResult.records.map(tm => tm.AccountId);
-          console.log(`Found ${accountIds.length} accounts in AccountTeamMember`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Found ${accountIds.length} accounts in AccountTeamMember`);
+          }
           
           // Query accounts by IDs (Salesforce allows up to 200 IDs in IN clause)
+          // Escape IDs to prevent injection (though IDs are typically safe)
           const fields = useCustomFields ? customFields : standardFields;
-          const idsString = accountIds.map(id => `'${id}'`).join(',');
+          const idsString = accountIds.map(id => `'${escapeSOQL(id)}'`).join(',');
           const accountQuery = `SELECT ${fields} FROM Account WHERE Id IN (${idsString}) ORDER BY Name`;
           
           try {
@@ -192,7 +197,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
               accountResult.records.forEach(acc => {
                 accountMap.set(acc.Id, acc);
               });
-              console.log(`Found ${accountResult.records.length} accounts from AccountTeamMember`);
+              if (process.env.NODE_ENV !== 'production') {
+                console.log(`Found ${accountResult.records.length} accounts from AccountTeamMember`);
+              }
             }
           } catch (error) {
             if (error.errorCode === 'INVALID_FIELD' && useCustomFields) {
@@ -504,7 +511,6 @@ export default async function handler(req, res) {
     let needsRefresh = true;
 
     if (!shouldForceRefresh) {
-      console.log('Checking cached accounts...');
       const cacheResult = await getCachedAccounts(supabase, user.id, user.email, user.role);
       
       if (cacheResult.accounts && cacheResult.accounts.length > 0) {
@@ -512,37 +518,35 @@ export default async function handler(req, res) {
         needsRefresh = cacheResult.needsRefresh;
         
         if (!needsRefresh) {
-          console.log(`Using ${accounts.length} cached accounts (fresh)`);
           useCached = true;
-        } else {
-          console.log(`Found ${accounts.length} cached accounts, but they need refresh`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Using ${accounts.length} cached accounts (fresh)`);
+          }
         }
-      } else {
-        console.log('No cached accounts found, will query Salesforce');
       }
-    } else {
-      console.log('Force refresh requested, skipping cache');
     }
 
     // Query Salesforce if cache is stale/missing or force refresh requested
     if (needsRefresh || shouldForceRefresh) {
       try {
+      if (process.env.NODE_ENV !== 'production') {
         console.log('Attempting Salesforce authentication...');
-        const sfdcAuth = await authenticateSalesforce(supabase);
-        console.log('Salesforce authenticated successfully');
-        
-        console.log('Querying Salesforce accounts...');
-        const sfdcAccounts = await querySalesforceAccounts(
-          sfdcAuth.connection,
-          user.id,
-          user.email,
-          user.role || role
-        );
-        console.log(`Found ${sfdcAccounts.length} accounts in Salesforce`);
+      }
+      const sfdcAuth = await authenticateSalesforce(supabase);
+      
+      const sfdcAccounts = await querySalesforceAccounts(
+        sfdcAuth.connection,
+        user.id,
+        user.email,
+        user.role || role
+      );
 
-        // Sync accounts to Supabase
-        const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
+      // Sync accounts to Supabase
+      const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
+      
+      if (process.env.NODE_ENV !== 'production') {
         console.log(`Synced ${syncedAccounts.length} accounts to Supabase`);
+      }
 
         // Transform to expected format
         accounts = syncedAccounts.map(acc => ({
@@ -563,7 +567,9 @@ export default async function handler(req, res) {
         
         // If we have cached accounts, use them even if stale
         if (accounts.length > 0) {
-          console.log(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
+          }
           useCached = true;
         } else {
           // No cached accounts available, return error
