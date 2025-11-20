@@ -664,11 +664,7 @@
                   <label htmlFor="account-select" className="block text-sm font-semibold text-gray-900 mb-4">
                     📋 My Accounts
                   </label>
-                {accounts.length > 0 ? (
-                  <>
-                    <label htmlFor="account-select" className="block text-sm font-medium text-gray-700 mb-2">
-                      {isSearchMode ? 'Select from Search Results' : 'Select Account'}
-                    </label>
+                  {accounts.length > 0 && !isSearchMode ? (
                     <select
                       id="account-select"
                       value={selectedAccount?.id || ''}
@@ -677,7 +673,7 @@
                         setSelectedAccount(account);
                         setCustomerIdentifier(account?.name || '');
                       }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all mb-4"
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                       aria-label="Select Salesforce account"
                     >
                       <option value="">-- Select an account --</option>
@@ -687,41 +683,20 @@
                         </option>
                       ))}
                     </select>
-                  </>
-                ) : !isSearchMode ? (
-                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg" role="alert">
-                    <p className="text-sm text-yellow-700">
-                      No accounts found. Use the search above to find any account, or contact your administrator to assign accounts to your role.
-                    </p>
-                  </div>
-            {/* Selected Account Details - Full Width Below Split */}
-            {selectedAccount && (
-              <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-                <h3 className="text-sm font-semibold text-gray-900 mb-4">Selected Account Details</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-600">Account:</span>
-                    <span className="ml-2 font-medium text-gray-900 block">{selectedAccount.name}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Tier:</span>
-                    <span className="ml-2 font-medium text-gray-900">{selectedAccount.accountTier || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Contract Value:</span>
-                    <span className="ml-2 font-medium text-gray-900">{selectedAccount.contractValue || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Industry:</span>
-                    <span className="ml-2 font-medium text-gray-900">{selectedAccount.industry || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Owner:</span>
-                    <span className="ml-2 font-medium text-gray-900">{selectedAccount.ownerName || 'N/A'}</span>
-                  </div>
+                  ) : !isSearchMode ? (
+                    <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-lg" role="alert">
+                      <p className="text-sm text-yellow-700">
+                        No accounts assigned. Use the search to find accounts, or contact your administrator.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-lg" role="alert">
+                      <p className="text-sm text-blue-700">
+                        Currently showing search results. Select an account from the search results on the right.
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
 
             {/* Input Section */}
             <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
