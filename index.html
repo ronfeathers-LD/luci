@@ -445,6 +445,11 @@
       const [dataSources, setDataSources] = useState(null); // Track data sources used
       const [analysisData, setAnalysisData] = useState(null); // Store actual data used for analysis
       const [showDataDetails, setShowDataDetails] = useState(false); // Toggle for showing data details
+      const [cases, setCases] = useState([]); // Store cases for the selected account
+      const [casesLoading, setCasesLoading] = useState(false); // Loading state for cases
+      const [showCasesList, setShowCasesList] = useState(false); // Toggle for showing cases list
+      const maxRetries = 3;
+      
       // Fetch Salesforce accounts on mount
       useEffect(() => {
         const fetchAccounts = async () => {
