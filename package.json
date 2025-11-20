@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.3",
-    "jsforce": "^2.0.0"
+    "jsforce": "^3.9.4"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.1"
