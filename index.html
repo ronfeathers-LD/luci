@@ -510,6 +510,62 @@
           setCasesLoading(false);
         }
       }, []);
+
+      // Fetch contacts for an account (can be called independently)
+      const fetchContactsForAccount = useCallback(async (accountData) => {
+        if (!accountData) {
+          setContacts([]);
+          setContactsLoading(false);
+          return;
+        }
+
+        // Use salesforceId if available, otherwise check if id is a Salesforce ID (no dashes, 15 or 18 chars)
+        // UUIDs have dashes, Salesforce IDs don't
+        const salesforceAccountId = accountData.salesforceId || 
+                                   (accountData.id && !accountData.id.includes('-') && 
+                                    (accountData.id.length === 15 || accountData.id.length === 18) 
+                                    ? accountData.id : null);
+        
+        if (!salesforceAccountId) {
+          if (!isProduction) {
+            console.warn('Cannot fetch contacts: No valid Salesforce Account ID found', { 
+              accountData,
+              hasSalesforceId: !!accountData.salesforceId,
+              id: accountData.id 
+            });
+          }
+          setContacts([]);
+          setContactsLoading(false);
+          return;
+        }
+
+        setContactsLoading(true);
+        try {
+          const params = new URLSearchParams({
+            salesforceAccountId: salesforceAccountId,
+            accountId: accountData.id, // This might be a UUID, which is fine for the lookup
+          });
+          
+          const contactsResponse = await fetch(`/api/salesforce-contacts?${params}`);
+          if (contactsResponse.ok) {
+            const contactsData = await contactsResponse.json();
+            const fetchedContacts = contactsData.contacts || [];
+            setContacts(fetchedContacts);
+            if (!isProduction) {
+              console.log(`Fetched ${fetchedContacts.length} contacts for account: ${salesforceAccountId}`);
+            }
+          } else {
+            const errorData = await contactsResponse.json().catch(() => ({}));
+            logError('Error fetching contacts:', new Error(errorData.message || errorData.error || `HTTP ${contactsResponse.status}`));
+            setContacts([]);
+          }
+        } catch (err) {
+          logError('Error fetching contacts:', err);
+          setContacts([]);
+        } finally {
+          setContactsLoading(false);
+        }
+      }, []);
       
       // Fetch Salesforce accounts on mount
       useEffect(() => {
@@ -560,15 +616,20 @@
         }
       }, [user, isSearchMode]);
 
-      // Fetch cases when selected account changes
+      // Fetch cases and contacts when selected account changes
       useEffect(() => {
         if (selectedAccount) {
+          // Use the memoized functions to fetch data
           fetchCasesForAccount(selectedAccount);
+          fetchContactsForAccount(selectedAccount);
         } else {
           setCases([]);
           setShowCasesList(false);
+          setContacts([]);
+          setShowContactsList(false);
         }
-      }, [selectedAccount, fetchCasesForAccount]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [selectedAccount]); // Functions are stable (useCallback with empty deps), so we can omit them
 
       // Search for accounts
       const handleSearch = async (searchQuery) => {
@@ -685,6 +746,9 @@
             avomaCallsReady: enrichedContext.ready_avoma_calls || 0,
             hasCases: (enrichedContext.recent_tickets || []).length > 0,
           });
+          
+          // Navigate to results page
+          setShowResultsPage(true);
           
           analytics.track('sentiment_analyzed', { 
             customerIdentifier,
@@ -1443,14 +1507,7 @@
                           const account = accounts.find(acc => acc.id === e.target.value);
                           setSelectedAccount(account);
                           setCustomerIdentifier(account?.name || '');
-                          // Fetch cases and contacts when account is selected
-                          if (account) {
-                            fetchCasesForAccount(account);
-                            fetchContactsForAccount(account);
-                          } else {
-                            setCases([]);
-                            setContacts([]);
-                          }
+                          // useEffect will handle fetching cases and contacts when selectedAccount changes
                         }}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                         aria-label="Select from search results"
