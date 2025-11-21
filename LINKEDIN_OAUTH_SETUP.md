@@ -29,10 +29,15 @@ LinkedIn uses OAuth 2.0 for API authentication. This guide will help you set up 
    - Replace `your-app.vercel.app` with your actual Vercel domain
    - Click **Update**
 
-5. **Add Required Products:**
+5. **Add Required Products (CRITICAL):**
    - Go to the **Products** tab
-   - Add **"Sign In with LinkedIn"** (required for basic profile access)
-   - If you have MDP access, add **"Marketing Developer Platform"**
+   - **MUST ADD:** **"Sign In with LinkedIn using OpenID Connect"** 
+     - This is REQUIRED for `openid`, `profile`, and `email` scopes
+     - Without this product, you'll get `invalid_scope_error`
+     - Click "Request access" or "Add product" if available
+   - If you have MDP access, add **"Marketing Developer Platform"** (optional)
+   
+   **⚠️ IMPORTANT:** The OAuth flow will fail with `invalid_scope_error` if this product is not enabled!
 
 ## Step 2: Insert Credentials into Database
 
