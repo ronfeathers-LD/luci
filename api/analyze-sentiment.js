@@ -101,11 +101,14 @@ export default async function handler(req, res) {
   const { transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier } = req.body;
 
   // Validate input
-  if (!transcription || !salesforceContext) {
+  // transcription can be empty string (analysis can proceed with Salesforce data only)
+  // but salesforceContext is required
+  if (transcription === undefined || transcription === null || !salesforceContext) {
     return res.status(400).json({ error: 'Missing required parameters: transcription and salesforceContext' });
   }
   
   // Validate input types and sizes
+  // Allow empty string for transcription (no Avoma data available)
   if (typeof transcription !== 'string' || transcription.length > 50000) {
     return res.status(400).json({ error: 'Invalid transcription: must be a string under 50,000 characters' });
   }
