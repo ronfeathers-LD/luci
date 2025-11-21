@@ -106,12 +106,24 @@ export default async function handler(req, res) {
     // Note: This requires LinkedIn OAuth access token
     // If not available, we'll return the URL for manual enrichment
     try {
-      const config = await getLinkedInConfig(supabase);
+      let config;
+      try {
+        config = await getLinkedInConfig(supabase);
+      } catch (configError) {
+        // LinkedIn config not found or error fetching it
+        console.log('[LinkedIn Enrich] Config error:', configError.message);
+        return res.status(200).json({
+          success: false,
+          linkedinURL: linkedinURL,
+          message: 'LinkedIn OAuth not configured. Profile URL stored for future enrichment.',
+          profile: null,
+        });
+      }
       
-      if (!config.access_token) {
+      if (!config || !config.access_token) {
         // No access token - return URL only (enrichment requires OAuth)
         return res.status(200).json({
-          success: true,
+          success: false,
           linkedinURL: linkedinURL,
           message: 'LinkedIn OAuth not configured. Profile URL stored for future enrichment.',
           profile: null,
@@ -120,7 +132,11 @@ export default async function handler(req, res) {
 
       // Attempt enrichment
       console.log('[LinkedIn Enrich] Attempting to enrich contact with URL:', linkedinURL);
-      const enrichmentResult = await enrichContact(supabase, contact || { id: contactId }, linkedinURL);
+      const contactForEnrichment = contact || { 
+        id: contactId, 
+        salesforce_id: salesforceContactId 
+      };
+      const enrichmentResult = await enrichContact(supabase, contactForEnrichment, linkedinURL);
       console.log('[LinkedIn Enrich] Enrichment result:', enrichmentResult.success ? 'SUCCESS' : 'FAILED', enrichmentResult.error || '');
       
       if (enrichmentResult.success) {
