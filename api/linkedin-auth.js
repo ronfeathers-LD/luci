@@ -72,12 +72,12 @@ export default async function handler(req, res) {
       authUrl.searchParams.set('client_id', config.client_id);
       authUrl.searchParams.set('redirect_uri', redirectUri);
       authUrl.searchParams.set('state', stateValue);
-      // Use valid LinkedIn scopes
-      // Note: r_liteprofile and r_emailaddress are deprecated
-      // For basic profile access with OpenID Connect, use: openid profile email
-      // For organization data, you may need Marketing Developer Platform access
-      // Start with basic scopes that should work for most apps
-      authUrl.searchParams.set('scope', 'openid profile email');
+      // Use valid LinkedIn scopes based on available products
+      // Try OpenID Connect scopes first (requires "Sign In with LinkedIn using OpenID Connect" product)
+      // If that fails, the user needs to enable that product in LinkedIn Developer Portal
+      // Alternative: Some apps may need to use r_basicprofile if they have older product access
+      const scope = req.query.scope || 'openid profile email';
+      authUrl.searchParams.set('scope', scope);
       
       // Update redirect URI in config if not set
       if (!config.redirect_uri) {
