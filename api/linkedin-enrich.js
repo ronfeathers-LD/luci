@@ -6,7 +6,7 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { enrichContact, getLinkedInConfig } = require('../lib/linkedin-client');
+const { enrichContact, getLinkedInConfig, normalizeLinkedInURL } = require('../lib/linkedin-client');
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -73,7 +73,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'LinkedIn URL is required' });
     }
 
+    // Normalize LinkedIn URL to ensure it's in the correct format
+    const normalizedURL = normalizeLinkedInURL(linkedinURL);
+    if (!normalizedURL) {
+      return res.status(400).json({ 
+        error: 'Invalid LinkedIn URL format',
+        message: `Unable to normalize LinkedIn URL: ${linkedinURL}. Expected format: https://www.linkedin.com/in/username or in/username`
+      });
+    }
+    
+    // Use normalized URL for all operations
+    linkedinURL = normalizedURL;
+
     // Check if we already have enriched profile data (unless force refresh)
+    // Note: linkedinURL is already normalized at this point
     if (!shouldForceRefresh && contact) {
       const { data: existingProfile } = await supabase
         .from('linkedin_profiles')
@@ -130,8 +143,8 @@ export default async function handler(req, res) {
         });
       }
 
-      // Attempt enrichment
-      console.log('[LinkedIn Enrich] Attempting to enrich contact with URL:', linkedinURL);
+      // Attempt enrichment (linkedinURL is already normalized)
+      console.log('[LinkedIn Enrich] Attempting to enrich contact with normalized URL:', linkedinURL);
       const contactForEnrichment = contact || { 
         id: contactId, 
         salesforce_id: salesforceContactId 

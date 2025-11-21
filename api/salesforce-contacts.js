@@ -7,6 +7,7 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
+const { normalizeLinkedInURL } = require('../lib/linkedin-client');
 
 // Helper function to get jsforce client
 function getJsforceClient() {
@@ -200,8 +201,9 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       continue;
     }
 
-    // Extract LinkedIn URL from Person_LinkedIn__c field
-    const linkedinURL = sfdcContact.Person_LinkedIn__c || null;
+    // Extract LinkedIn URL from Person_LinkedIn__c field and normalize it
+    const rawLinkedInURL = sfdcContact.Person_LinkedIn__c || null;
+    const linkedinURL = rawLinkedInURL ? normalizeLinkedInURL(rawLinkedInURL) : null;
 
     const contactData = {
       salesforce_id: sfdcContact.Id,
@@ -216,7 +218,7 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       mobile_phone: sfdcContact.MobilePhone || null,
       contact_status: contactStatus,
       account_name: sfdcContact.Account?.Name || null,
-      linkedin_url: linkedinURL, // Store LinkedIn URL for enrichment
+      linkedin_url: linkedinURL, // Store normalized LinkedIn URL for enrichment
       last_synced_at: new Date().toISOString(),
     };
 
