@@ -143,7 +143,7 @@ export default async function handler(req, res) {
       }
     } catch (error) {
       // If enrichment fails (e.g., no OAuth token), just store the URL
-      if (error.message.includes('not found') || error.message.includes('not available')) {
+      if (error.message && (error.message.includes('not found') || error.message.includes('not available') || error.message.includes('not configured'))) {
         return res.status(200).json({
           success: true,
           linkedinURL: linkedinURL,
@@ -153,20 +153,30 @@ export default async function handler(req, res) {
       }
       
       console.error('Error enriching LinkedIn profile:', error);
-      return res.status(500).json({ 
-        error: 'Failed to enrich LinkedIn profile',
-        details: process.env.NODE_ENV === 'production' ? undefined : error.message,
+      console.error('Error stack:', error.stack);
+      
+      // Return a graceful error instead of 500
+      return res.status(200).json({
+        success: false,
+        linkedinURL: linkedinURL,
+        error: error.message || 'LinkedIn enrichment failed',
+        message: 'LinkedIn enrichment is not available. Profile URL stored for future enrichment.',
+        profile: null,
       });
     }
 
   } catch (error) {
     console.error('Error in linkedin-enrich function:', error);
+    console.error('Error stack:', error.stack);
     
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'An error occurred while enriching LinkedIn profile'
-      : error.message || 'An error occurred while enriching LinkedIn profile';
-    
-    return res.status(500).json({ error: errorMessage });
+    // Return graceful error instead of 500 to prevent UI errors
+    return res.status(200).json({
+      success: false,
+      linkedinURL: linkedinURL || null,
+      error: error.message || 'An error occurred while enriching LinkedIn profile',
+      message: 'LinkedIn enrichment is not available. Profile URL stored for future enrichment.',
+      profile: null,
+    });
   }
 }
 
