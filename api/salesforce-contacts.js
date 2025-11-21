@@ -78,10 +78,12 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   // Query contacts for the account, excluding "Unqualified" status
   // Try with Contact_Status__c first (common custom field name)
   // Also try Status__c as alternative field name
+  // Include Person_LinkedIn__c field for enrichment
   // Fallback to standard fields if custom field doesn't exist
   // In SOQL, we need to handle nulls properly - use IS NULL or filter in code
   const customFieldsQuery = `SELECT Id, FirstName, LastName, Name, Email, Title, Phone, MobilePhone, 
-                             Contact_Status__c, Status__c, AccountId, Account.Name
+                             Contact_Status__c, Status__c, AccountId, Account.Name,
+                             Person_LinkedIn__c
                              FROM Contact 
                              WHERE AccountId = '${escapedAccountId}' 
                              AND (Contact_Status__c != 'Unqualified' OR Contact_Status__c = null)
@@ -110,8 +112,10 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
       
       // Standard fields query (no Contact Status filter if field doesn't exist)
       // Return all contacts since we can't filter by status
+      // Still try to get LinkedIn URL even if status field doesn't exist
       const standardFieldsQuery = `SELECT Id, FirstName, LastName, Name, Email, Title, Phone, MobilePhone, 
-                                   AccountId, Account.Name
+                                   AccountId, Account.Name,
+                                   Person_LinkedIn__c
                                    FROM Contact 
                                    WHERE AccountId = '${escapedAccountId}' 
                                    ORDER BY LastName, FirstName 
@@ -196,6 +200,9 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       continue;
     }
 
+    // Extract LinkedIn URL from Person_LinkedIn__c field
+    const linkedinURL = sfdcContact.Person_LinkedIn__c || null;
+
     const contactData = {
       salesforce_id: sfdcContact.Id,
       salesforce_account_id: salesforceAccountId,
@@ -209,6 +216,7 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       mobile_phone: sfdcContact.MobilePhone || null,
       contact_status: contactStatus,
       account_name: sfdcContact.Account?.Name || null,
+      linkedin_url: linkedinURL, // Store LinkedIn URL for enrichment
       last_synced_at: new Date().toISOString(),
     };
 
@@ -295,6 +303,7 @@ module.exports = async function handler(req, res) {
             contactStatus: c.contact_status,
             accountId: c.salesforce_account_id,
             accountName: c.account_name,
+            linkedinURL: c.linkedin_url, // Include LinkedIn URL in response
           })),
           total: cached.contacts.length,
           cached: true,
@@ -357,6 +366,7 @@ module.exports = async function handler(req, res) {
       contactStatus: c.contact_status,
       accountId: c.salesforce_account_id,
       accountName: c.account_name,
+      linkedinURL: c.linkedin_url, // Include LinkedIn URL in response
     }));
 
     return res.status(200).json({
@@ -391,6 +401,7 @@ module.exports = async function handler(req, res) {
             contactStatus: c.contact_status,
             accountId: c.salesforce_account_id,
             accountName: c.account_name,
+            linkedinURL: c.linkedin_url, // Include LinkedIn URL in response
           })),
           total: staleCache.contacts.length,
           cached: true,
