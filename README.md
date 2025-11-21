@@ -34,6 +34,10 @@ A Vercel-ready React application that analyzes customer sentiment by combining A
 
 ### Local Development
 
+For detailed local development setup, see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
+
+**Quick Start:**
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/ronfeathers-LD/luci.git
@@ -45,15 +49,23 @@ cd luci
 npm install
 ```
 
-3. Build Tailwind CSS:
+3. Set up environment variables:
 ```bash
-npm run build
+# Create .env.local file with your credentials
+# See .env.local.example for required variables
 ```
 
-4. Open `index.html` in your browser or use a local server:
+4. Run the development server:
 ```bash
-npx serve .
+npm run dev
 ```
+
+5. Open `http://localhost:3000` in your browser
+
+The development server will:
+- Serve your API routes at `/api/*`
+- Hot reload on file changes
+- Use environment variables from `.env.local`
 
 ### Deployment to Vercel
 
