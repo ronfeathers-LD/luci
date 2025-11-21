@@ -55,12 +55,17 @@ npm install
 # See .env.local.example for required variables
 ```
 
-4. Run the development server:
+4. Link to Vercel project (first time only):
 ```bash
-npm run dev
+npx vercel link
 ```
 
-5. Open `http://localhost:3000` in your browser
+5. Run the development server:
+```bash
+npx vercel dev
+```
+
+6. Open `http://localhost:3000` in your browser
 
 The development server will:
 - Serve your API routes at `/api/*`

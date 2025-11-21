@@ -50,7 +50,27 @@ This will prompt you to:
 
 **Note**: You can also run locally without linking - just use `.env.local` for all variables.
 
-### 4. Run the Development Server
+### 4. Link to Vercel Project (First Time Only)
+
+Before running locally, you need to link to your Vercel project:
+
+```bash
+npx vercel link
+```
+
+This will prompt you to:
+- Link to an existing project or create a new one
+- Select your Vercel account and project
+
+**Note**: If you don't want to link, you can run `npx vercel dev` directly, but you'll need to set up environment variables manually.
+
+### 5. Run the Development Server
+
+```bash
+npx vercel dev
+```
+
+Or if you prefer using npm:
 
 ```bash
 npm run dev
@@ -61,6 +81,7 @@ This will:
 - Serve your API routes at `http://localhost:3000/api/*`
 - Serve your frontend at `http://localhost:3000`
 - Hot reload on file changes
+- Use environment variables from `.env.local` or Vercel project
 
 The server will start on port 3000 by default. You can change this by setting the `PORT` environment variable.
 
