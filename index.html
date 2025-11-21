@@ -567,13 +567,6 @@
             
             // Enrich contacts with LinkedIn data (if URLs are available)
             // This is non-blocking - we'll use whatever LinkedIn data is available
-            // Temporarily disabled until OAuth is fully configured to prevent 500 errors
-            // TODO: Re-enable once LinkedIn OAuth is working
-            const enrichedContacts = fetchedContacts;
-            
-            // LinkedIn enrichment (disabled until OAuth configured)
-            // Uncomment once OAuth is working:
-            /*
             const enrichedContacts = await Promise.all(
               fetchedContacts.map(async (contact) => {
                 if (contact.linkedinURL) {
@@ -621,7 +614,6 @@
                 return contact;
               })
             );
-            */
             
             setContacts(enrichedContacts);
             if (!isProduction) {
