@@ -119,7 +119,9 @@ export default async function handler(req, res) {
       }
 
       // Attempt enrichment
+      console.log('[LinkedIn Enrich] Attempting to enrich contact with URL:', linkedinURL);
       const enrichmentResult = await enrichContact(supabase, contact || { id: contactId }, linkedinURL);
+      console.log('[LinkedIn Enrich] Enrichment result:', enrichmentResult.success ? 'SUCCESS' : 'FAILED', enrichmentResult.error || '');
       
       if (enrichmentResult.success) {
         // Fetch the enriched profile
@@ -129,12 +131,15 @@ export default async function handler(req, res) {
           .eq('linkedin_url', linkedinURL)
           .single();
 
+        console.log('[LinkedIn Enrich] Profile fetched from DB:', profile ? 'Found' : 'Not found');
+
         return res.status(200).json({
           success: true,
           profile: profile,
           cached: false,
         });
       } else {
+        console.log('[LinkedIn Enrich] Enrichment failed:', enrichmentResult.error);
         return res.status(200).json({
           success: false,
           linkedinURL: linkedinURL,
