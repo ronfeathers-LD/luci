@@ -162,7 +162,14 @@ Provide a comprehensive sentiment analysis considering:
    - Total Avoma calls: ${salesforceContext.total_avoma_calls || 0}
    - Ready transcripts: ${salesforceContext.ready_avoma_calls || 0}
 
-5. **Overall Assessment**:
+5. **LinkedIn Professional Context**${salesforceContext.linkedin_data ? `:
+   - Contacts with LinkedIn profiles: ${salesforceContext.linkedin_data.total_contacts_with_linkedin || 0}
+   - Enriched profile data available: ${salesforceContext.linkedin_data.contacts_with_enriched_data || 0}
+   - Key contact insights:
+${salesforceContext.linkedin_data.contacts.map(c => `     * ${c.name}: ${c.current_title || 'Title unknown'} at ${c.current_company || 'Company unknown'}${c.job_changed_recently ? ' (RECENT JOB CHANGE - potential risk indicator)' : ''}${c.profile_updated_recently ? ' (Profile recently updated)' : ''}`).join('\n')}
+   - Engagement signals: ${salesforceContext.linkedin_data.contacts.reduce((sum, c) => sum + (c.engagement_with_company?.posts_about_company || 0) + (c.engagement_with_company?.comments_on_company_posts || 0) + (c.engagement_with_company?.shares_of_company_content || 0), 0)} total interactions with company content` : ' (No LinkedIn data available)'}
+
+6. **Overall Assessment**:
    - Customer relationship health (at-risk, stable, or thriving)
    - Key risk factors or positive indicators
    - Recommended actions or areas of concern

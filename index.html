@@ -564,9 +564,45 @@
           if (contactsResponse.ok) {
             const contactsData = await contactsResponse.json();
             const fetchedContacts = contactsData.contacts || [];
-            setContacts(fetchedContacts);
+            
+            // Enrich contacts with LinkedIn data (if URLs are available)
+            // This is non-blocking - we'll use whatever LinkedIn data is available
+            const enrichedContacts = await Promise.all(
+              fetchedContacts.map(async (contact) => {
+                if (contact.linkedinURL) {
+                  try {
+                    const enrichResponse = await fetch('/api/linkedin-enrich', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        linkedinURL: contact.linkedinURL,
+                        salesforceContactId: contact.id,
+                      }),
+                    });
+                    
+                    if (enrichResponse.ok) {
+                      const enrichData = await enrichResponse.json();
+                      if (enrichData.profile) {
+                        return {
+                          ...contact,
+                          linkedinProfile: enrichData.profile,
+                        };
+                      }
+                    }
+                  } catch (err) {
+                    // LinkedIn enrichment failed - continue with contact data only
+                    if (!isProduction) {
+                      console.warn('LinkedIn enrichment failed for contact:', contact.name, err);
+                    }
+                  }
+                }
+                return contact;
+              })
+            );
+            
+            setContacts(enrichedContacts);
             if (!isProduction) {
-              console.log(`Fetched ${fetchedContacts.length} contacts for account: ${salesforceAccountId}`);
+              console.log(`Fetched ${enrichedContacts.length} contacts for account: ${salesforceAccountId}`);
             }
           } else {
             const errorData = await contactsResponse.json().catch(() => ({}));
@@ -786,12 +822,37 @@
             setAvomaWarning(null);
           }
 
+          // Enrich with LinkedIn data from contacts
+          const linkedinData = {
+            contacts: contacts
+              .filter(c => c.linkedinURL || c.linkedinProfile)
+              .map(c => ({
+                name: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+                linkedin_url: c.linkedinURL,
+                current_title: c.title || c.linkedinProfile?.current_title,
+                current_company: c.linkedinProfile?.current_company,
+                job_changed_recently: c.linkedinProfile?.job_changed_recently || false,
+                days_in_current_role: c.linkedinProfile?.days_in_current_role,
+                profile_updated_recently: c.linkedinProfile?.profile_updated_at ? 
+                  (new Date() - new Date(c.linkedinProfile.profile_updated_at)) < (30 * 24 * 60 * 60 * 1000) : false,
+                engagement_with_company: {
+                  posts_about_company: c.linkedinProfile?.posts_about_company || 0,
+                  comments_on_company_posts: c.linkedinProfile?.comments_on_company_posts || 0,
+                  shares_of_company_content: c.linkedinProfile?.shares_of_company_content || 0,
+                  reactions_to_company_posts: c.linkedinProfile?.reactions_to_company_posts || 0,
+                },
+              })),
+            total_contacts_with_linkedin: contacts.filter(c => c.linkedinURL).length,
+            contacts_with_enriched_data: contacts.filter(c => c.linkedinProfile).length,
+          };
+
           // Add counts to salesforce context for sentiment analysis
           const enrichedContext = {
             ...salesforceContext,
             total_cases_count: salesforceContext.total_cases_count || 0,
             total_avoma_calls: meetingCounts?.total || 0,
             ready_avoma_calls: meetingCounts?.ready || 0,
+            linkedin_data: linkedinData.contacts.length > 0 ? linkedinData : null,
           };
 
           // Store the actual data used for analysis (for transparency)
@@ -830,6 +891,9 @@
             avomaCallsTotal: enrichedContext.total_avoma_calls || 0,
             avomaCallsReady: enrichedContext.ready_avoma_calls || 0,
             hasCases: (enrichedContext.recent_tickets || []).length > 0,
+            hasLinkedIn: !!enrichedContext.linkedin_data && enrichedContext.linkedin_data.contacts.length > 0,
+            linkedinContactsCount: enrichedContext.linkedin_data?.contacts.length || 0,
+            linkedinEnrichedCount: enrichedContext.linkedin_data?.contacts_with_enriched_data || 0,
           });
           
           // Navigate to results page
@@ -1274,6 +1338,68 @@
                     </div>
                   )}
 
+                  {/* LinkedIn Data Details */}
+                  {analysisData.salesforceContext?.linkedin_data && 
+                   analysisData.salesforceContext.linkedin_data.contacts.length > 0 && (
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                      <h5 className="text-sm font-semibold text-gray-800 mb-2">
+                        LinkedIn Professional Context ({analysisData.salesforceContext.linkedin_data.contacts.length} contacts)
+                      </h5>
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                        {analysisData.salesforceContext.linkedin_data.contacts.map((contact, idx) => (
+                          <div key={idx} className="text-xs bg-white rounded p-2 border border-gray-200">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-gray-900">{contact.name}</span>
+                              {contact.linkedin_url && (
+                                <a
+                                  href={contact.linkedin_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  aria-label={`View ${contact.name} on LinkedIn`}
+                                >
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                  </svg>
+                                  LinkedIn
+                                </a>
+                              )}
+                            </div>
+                            {contact.current_title && (
+                              <p className="text-gray-700 mt-1">
+                                <span className="font-medium">Title:</span> {contact.current_title}
+                                {contact.current_company && ` at ${contact.current_company}`}
+                              </p>
+                            )}
+                            {contact.job_changed_recently && (
+                              <p className="text-red-600 text-xs font-semibold mt-1">
+                                ⚠️ Recent job change detected
+                              </p>
+                            )}
+                            {contact.profile_updated_recently && (
+                              <p className="text-yellow-600 text-xs mt-1">
+                                📝 Profile recently updated
+                              </p>
+                            )}
+                            {contact.engagement_with_company && (
+                              contact.engagement_with_company.posts_about_company > 0 ||
+                              contact.engagement_with_company.comments_on_company_posts > 0 ||
+                              contact.engagement_with_company.shares_of_company_content > 0 ||
+                              contact.engagement_with_company.reactions_to_company_posts > 0
+                            ) && (
+                              <p className="text-gray-600 text-xs mt-1">
+                                Engagement: {contact.engagement_with_company.posts_about_company} posts, 
+                                {contact.engagement_with_company.comments_on_company_posts} comments, 
+                                {contact.engagement_with_company.shares_of_company_content} shares, 
+                                {contact.engagement_with_company.reactions_to_company_posts} reactions
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Data Summary Statistics */}
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h5 className="text-sm font-semibold text-blue-900 uppercase tracking-wide mb-2">
@@ -1288,7 +1414,7 @@
                         <div className="text-blue-600 font-medium">Account Fields</div>
                         <div className="text-blue-900">
                           {Object.keys(analysisData.salesforceContext).filter(k => 
-                            !['recent_tickets', 'account_id'].includes(k) && 
+                            !['recent_tickets', 'account_id', 'linkedin_data'].includes(k) && 
                             analysisData.salesforceContext[k] !== null
                           ).length} provided
                         </div>
@@ -1300,9 +1426,9 @@
                         </div>
                       </div>
                       <div>
-                        <div className="text-blue-600 font-medium">Total Context</div>
+                        <div className="text-blue-600 font-medium">LinkedIn Contacts</div>
                         <div className="text-blue-900">
-                          {(analysisData.transcription.length + JSON.stringify(analysisData.salesforceContext).length).toLocaleString()} chars
+                          {analysisData.salesforceContext.linkedin_data?.contacts.length || 0} profiles
                         </div>
                       </div>
                     </div>
@@ -1386,7 +1512,36 @@
                                   {contact.phone}
                                 </a>
                               )}
+                              {contact.linkedinURL && (
+                                <a 
+                                  href={contact.linkedinURL} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  aria-label={`View ${contact.name} on LinkedIn`}
+                                >
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                  </svg>
+                                  LinkedIn
+                                </a>
+                              )}
                             </div>
+                            {contact.linkedinProfile && (
+                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                {contact.linkedinProfile.job_changed_recently && (
+                                  <p className="text-xs text-red-600 font-semibold mb-1">
+                                    ⚠️ Recent job change detected
+                                  </p>
+                                )}
+                                {contact.linkedinProfile.current_title && (
+                                  <p className="text-xs text-gray-600">
+                                    <span className="font-medium">LinkedIn:</span> {contact.linkedinProfile.current_title}
+                                    {contact.linkedinProfile.current_company && ` at ${contact.linkedinProfile.current_company}`}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
