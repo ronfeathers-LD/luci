@@ -8,104 +8,15 @@
 
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
-
-// Helper function to get jsforce client
-function getJsforceClient() {
-  try {
-    const jsforce = require('jsforce');
-    return jsforce;
-  } catch (error) {
-    console.warn('jsforce not available:', error.message);
-    return null;
-  }
-}
-
-/**
- * Authenticate with Salesforce using jsforce (same as SOW-Generator)
- */
-async function authenticateSalesforce(supabase) {
-  // Get Salesforce config from Supabase (same pattern as SOW-Generator)
-  const { data: config, error: configError } = await supabase
-    .from('salesforce_configs')
-    .select('*')
-    .eq('is_active', true)
-    .single();
-
-  if (configError) {
-    console.error('Error fetching Salesforce config:', configError);
-    throw new Error(`Error fetching Salesforce config: ${configError.message}`);
-  }
-  
-  if (!config) {
-    console.error('No active Salesforce configuration found in salesforce_configs table');
-    throw new Error('Salesforce configuration not found in Supabase. Please insert credentials into salesforce_configs table.');
-  }
-  
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('Salesforce config found:', {
-      username: config.username,
-      login_url: config.login_url,
-      has_password: !!config.password,
-      has_security_token: !!config.security_token,
-    });
-  }
-
-  const jsforce = getJsforceClient();
-  if (!jsforce) {
-    console.error('jsforce library not available - check if jsforce is installed');
-    throw new Error('jsforce library not available. Make sure jsforce is installed: npm install jsforce');
-  }
-  
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('jsforce library loaded successfully');
-  }
-
-  // Clean login URL (handle custom domains like leandata.my.salesforce.com)
-  let loginUrl = config.login_url || 'https://login.salesforce.com';
-  loginUrl = loginUrl.trim().replace(/\/$/, '');
-  
-  // For custom domains ending in .my.salesforce.com, keep as-is
-  // jsforce will handle the authentication
-  if (!loginUrl.startsWith('http://') && !loginUrl.startsWith('https://')) {
-    loginUrl = 'https://' + loginUrl;
-  }
-
-  // Create connection
-  const conn = new jsforce.Connection({
-    loginUrl: loginUrl
-  });
-
-  // Authenticate (jsforce handles OAuth internally - no Client ID/Secret needed!)
-  try {
-    await conn.login(config.username, config.password + (config.security_token || ''));
-  } catch (error) {
-    // Try with password only if first attempt fails
-    if (error.message && error.message.includes('INVALID_LOGIN')) {
-      await conn.login(config.username, config.password);
-    } else {
-      throw error;
-    }
-  }
-
-  return {
-    connection: conn,
-    instanceUrl: conn.instanceUrl,
-    accessToken: conn.accessToken,
-  };
-}
+const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');
+const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
 /**
  * Query Salesforce for accounts based on user role/ownership
  * Uses standard fields only (custom fields may not exist in all orgs)
  * Note: Salesforce doesn't allow semi-join subqueries with OR, so we query separately and combine
  */
-/**
- * Escape single quotes in SOQL queries to prevent injection
- */
-function escapeSOQL(str) {
-  if (!str) return '';
-  return str.replace(/'/g, "\\'");
-}
 
 async function querySalesforceAccounts(conn, userId, userEmail, role) {
   // First, get the Salesforce User ID for the email (needed for AccountTeamMember query)
@@ -391,7 +302,7 @@ async function searchCachedAccounts(supabase, searchTerm) {
 
   // Check if cache is fresh (within TTL)
   const now = new Date();
-  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
+  const cacheExpiry = CACHE_TTL.ACCOUNTS * 60 * 60 * 1000;
   
   // Check if all accounts are fresh (within TTL)
   const allFresh = cachedAccounts.every(acc => {
@@ -656,7 +567,7 @@ async function getCachedAccounts(supabase, userId, email, role) {
   
   // Check if any account needs refresh (older than CACHE_TTL_HOURS)
   const now = new Date();
-  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000; // Convert hours to milliseconds
+  const cacheExpiry = CACHE_TTL.ACCOUNTS * 60 * 60 * 1000; // Convert hours to milliseconds
   let needsRefresh = false;
 
   const accounts = userAccounts.map(ua => {
@@ -684,31 +595,21 @@ async function getCachedAccounts(supabase, userId, email, role) {
   return { accounts, needsRefresh };
 }
 
-// Constants
-const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
-const REQUEST_TIMEOUT = 30000; // 30 seconds
-const CACHE_TTL_HOURS = 1; // Cache accounts for 1 hour before refreshing from Salesforce
-
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
-  // Check request size
-  const contentLength = req.headers['content-length'];
-  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-    return res.status(413).json({ error: 'Request too large' });
+  // Validate request size
+  const sizeValidation = validateRequestSize(req, MAX_REQUEST_SIZE.DEFAULT);
+  if (!sizeValidation.valid) {
+    return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
   const { userId, email, role, forceRefresh, search } = req.query;
@@ -718,7 +619,7 @@ export default async function handler(req, res) {
   
   // Validate input (skip validation for search requests)
   if (!isSearch && !userId && !email) {
-    return res.status(400).json({ error: 'Missing required parameter: userId or email (or search term)' });
+    return sendErrorResponse(res, new Error('Missing required parameter: userId or email (or search term)'), 400);
   }
   
   // Check if we should force refresh (bypass cache)
@@ -728,13 +629,8 @@ export default async function handler(req, res) {
     // Get Supabase client
     const supabase = getSupabaseClient();
     
-    // Check if Supabase is configured
-    if (!supabase) {
-      console.error('Supabase not configured');
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured. Please contact your administrator.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
     
     // Handle search request (bypasses user assignment logic)
@@ -762,7 +658,7 @@ export default async function handler(req, res) {
             lastSyncedAt: acc.last_synced_at,
           }));
           
-          return res.status(200).json({
+          return sendSuccessResponse(res, {
             accounts: accounts,
             total: accounts.length,
             searchTerm: search,
@@ -800,7 +696,7 @@ export default async function handler(req, res) {
           lastSyncedAt: acc.last_synced_at,
         }));
         
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           accounts: accounts,
           total: accounts.length,
           searchTerm: search,
@@ -877,7 +773,7 @@ export default async function handler(req, res) {
     }
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return sendErrorResponse(res, new Error('User not found'), 404);
     }
 
     // Check cache first (unless force refresh is requested)
@@ -958,7 +854,7 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       accounts: accounts,
       total: accounts.length,
       userId: user.id,
@@ -966,17 +862,8 @@ export default async function handler(req, res) {
       cached: useCached,
     });
   } catch (error) {
-    console.error('Error in salesforce-accounts function:', error);
-    console.error('Error stack:', error.stack);
-    return res.status(500).json({ 
-      error: 'Failed to fetch accounts from Salesforce',
-      details: process.env.NODE_ENV === 'production' 
-        ? 'Check server logs for details' 
-        : {
-            message: error.message,
-            stack: error.stack,
-            name: error.name,
-          }
-    });
+    logError('Error in salesforce-accounts function:', error);
+    logError('Error stack:', error.stack);
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }

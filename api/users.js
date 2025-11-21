@@ -7,21 +7,17 @@
 
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   // Only allow POST and GET requests
   if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
   try {
@@ -30,19 +26,14 @@ export default async function handler(req, res) {
       const { email, name, picture, sub } = req.body;
 
       if (!email || !sub) {
-        return res.status(400).json({ error: 'Missing required fields: email and sub' });
+        return sendErrorResponse(res, new Error('Missing required fields: email and sub'), 400);
       }
 
       // Get Supabase client
       const supabase = getSupabaseClient();
       
-      // Check if Supabase is configured
-      if (!supabase) {
-        console.error('Supabase not configured');
-        return res.status(503).json({
-          error: 'Database not configured',
-          message: 'The application database is not properly configured. Please contact your administrator.',
-        });
+      if (!validateSupabase(supabase, res)) {
+        return; // Response already sent
       }
 
       // Check if user exists
@@ -69,7 +60,7 @@ export default async function handler(req, res) {
           .single();
 
         if (updateError) {
-          console.error('Error updating user:', updateError);
+          logError('Error updating user:', updateError);
           throw updateError;
         }
 
@@ -89,32 +80,27 @@ export default async function handler(req, res) {
           .single();
 
         if (insertError) {
-          console.error('Error creating user:', insertError);
+          logError('Error creating user:', insertError);
           throw insertError;
         }
 
         user = newUser;
       }
 
-      return res.status(200).json(user);
+      return sendSuccessResponse(res, user);
     } else if (req.method === 'GET') {
       // Get user by email or ID
       const { email, id, google_sub } = req.query;
 
       if (!email && !id && !google_sub) {
-        return res.status(400).json({ error: 'Missing required parameter: email, id, or google_sub' });
+        return sendErrorResponse(res, new Error('Missing required parameter: email, id, or google_sub'), 400);
       }
 
       // Get Supabase client
       const supabase = getSupabaseClient();
       
-      // Check if Supabase is configured
-      if (!supabase) {
-        console.error('Supabase not configured');
-        return res.status(503).json({
-          error: 'Database not configured',
-          message: 'The application database is not properly configured. Please contact your administrator.',
-        });
+      if (!validateSupabase(supabase, res)) {
+        return; // Response already sent
       }
 
       // Build query based on provided parameter
@@ -133,21 +119,17 @@ export default async function handler(req, res) {
       if (fetchError) {
         if (fetchError.code === 'PGRST116') {
           // No rows returned
-          return res.status(404).json({ error: 'User not found' });
+          return sendErrorResponse(res, new Error('User not found'), 404);
         }
-        console.error('Error fetching user:', fetchError);
+        logError('Error fetching user:', fetchError);
         throw fetchError;
       }
 
-      return res.status(200).json(user);
+      return sendSuccessResponse(res, user);
     }
   } catch (error) {
-    console.error('Error in users function:', error);
-    return res.status(500).json({ 
-      error: process.env.NODE_ENV === 'production' 
-        ? 'An error occurred' 
-        : error.message 
-    });
+    logError('Error in users function:', error);
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }
 

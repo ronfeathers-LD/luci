@@ -7,32 +7,25 @@
 
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { enrichContact, getLinkedInConfig, normalizeLinkedInURL } = require('../lib/linkedin-client');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
   
   // Only allow POST and GET requests
   if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
   // Wrap everything in try-catch to ensure we never return 500
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured. Please contact your administrator.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     // Get parameters
@@ -41,9 +34,7 @@ export default async function handler(req, res) {
       : req.query;
 
     if (!linkedinURL && !contactId && !salesforceContactId) {
-      return res.status(400).json({ 
-        error: 'Missing required parameter: linkedinURL, contactId, or salesforceContactId' 
-      });
+      return sendErrorResponse(res, new Error('Missing required parameter: linkedinURL, contactId, or salesforceContactId'), 400);
     }
 
     const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
@@ -62,7 +53,7 @@ export default async function handler(req, res) {
       const { data: contactData, error: contactError } = await query.single();
       
       if (contactError || !contactData) {
-        return res.status(404).json({ error: 'Contact not found' });
+        return sendErrorResponse(res, new Error('Contact not found'), 404);
       }
       
       contact = contactData;
@@ -70,16 +61,13 @@ export default async function handler(req, res) {
     }
 
     if (!linkedinURL) {
-      return res.status(400).json({ error: 'LinkedIn URL is required' });
+      return sendErrorResponse(res, new Error('LinkedIn URL is required'), 400);
     }
 
     // Normalize LinkedIn URL to ensure it's in the correct format
     const normalizedURL = normalizeLinkedInURL(linkedinURL);
     if (!normalizedURL) {
-      return res.status(400).json({ 
-        error: 'Invalid LinkedIn URL format',
-        message: `Unable to normalize LinkedIn URL: ${linkedinURL}. Expected format: https://www.linkedin.com/in/username or in/username`
-      });
+      return sendErrorResponse(res, new Error(`Invalid LinkedIn URL format. Unable to normalize LinkedIn URL: ${linkedinURL}. Expected format: https://www.linkedin.com/in/username or in/username`), 400);
     }
     
     // Use normalized URL for all operations
@@ -104,7 +92,7 @@ export default async function handler(req, res) {
         if (cacheAge < cacheTTL) {
           // Return cached profile
           
-          return res.status(200).json({
+          return sendSuccessResponse(res, {
             success: true,
             profile: existingProfile,
             cached: true,
@@ -122,7 +110,7 @@ export default async function handler(req, res) {
         config = await getLinkedInConfig(supabase);
       } catch (configError) {
         // LinkedIn config not found or error fetching it
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           success: false,
           linkedinURL: linkedinURL,
           message: 'LinkedIn OAuth not configured. Profile URL stored for future enrichment.',
@@ -132,7 +120,7 @@ export default async function handler(req, res) {
       
       if (!config || !config.access_token) {
         // No access token - return URL only (enrichment requires OAuth)
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           success: false,
           linkedinURL: linkedinURL,
           message: 'LinkedIn OAuth not configured. Profile URL stored for future enrichment.',
@@ -155,13 +143,13 @@ export default async function handler(req, res) {
           .eq('linkedin_url', linkedinURL)
           .single();
 
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           success: true,
           profile: profile,
           cached: false,
         });
       } else {
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           success: false,
           linkedinURL: linkedinURL,
           error: enrichmentResult.error,
@@ -171,7 +159,7 @@ export default async function handler(req, res) {
     } catch (error) {
       // If enrichment fails (e.g., no OAuth token), just store the URL
       if (error.message && (error.message.includes('not found') || error.message.includes('not available') || error.message.includes('not configured'))) {
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           success: true,
           linkedinURL: linkedinURL,
           message: 'LinkedIn OAuth not configured. Profile URL stored for future enrichment.',
@@ -179,11 +167,11 @@ export default async function handler(req, res) {
         });
       }
       
-      console.error('Error enriching LinkedIn profile:', error);
-      console.error('Error stack:', error.stack);
+      logError('Error enriching LinkedIn profile:', error);
+      logError('Error stack:', error.stack);
       
       // Return a graceful error instead of 500
-      return res.status(200).json({
+      return sendSuccessResponse(res, {
         success: false,
         linkedinURL: linkedinURL,
         error: error.message || 'LinkedIn enrichment failed',
@@ -193,11 +181,11 @@ export default async function handler(req, res) {
     }
 
   } catch (error) {
-    console.error('Error in linkedin-enrich function:', error);
-    console.error('Error stack:', error.stack);
+    logError('Error in linkedin-enrich function:', error);
+    logError('Error stack:', error.stack);
     
     // Return graceful error instead of 500 to prevent UI errors
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       success: false,
       linkedinURL: linkedinURL || null,
       error: error.message || 'An error occurred while enriching LinkedIn profile',

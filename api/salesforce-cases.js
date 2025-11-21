@@ -7,7 +7,7 @@
 
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
-const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, log, logError, isProduction } = require('../lib/api-helpers');
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
 /**
@@ -112,7 +112,7 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
   return syncedCases;
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;
@@ -141,11 +141,8 @@ module.exports = async function handler(req, res) {
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured. Please contact your administrator.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     // CACHE-FIRST: Check Supabase cache before querying Salesforce
@@ -242,7 +239,7 @@ module.exports = async function handler(req, res) {
     
     // If Salesforce fails, try to return stale cache
     const supabase = getSupabaseClient();
-    if (!shouldForceRefresh && supabase) {
+    if (!shouldForceRefresh && supabase && validateSupabase(supabase, res)) {
       const staleCache = await getCachedCases(supabase, salesforceAccountId);
       if (staleCache && staleCache.cases.length > 0) {
         log(`Salesforce query failed, using ${staleCache.cases.length} stale cached cases`);

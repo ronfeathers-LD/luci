@@ -7,10 +7,9 @@
 
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { AvomaClient } = require('../lib/avoma-client');
-
-// Constants
-const CACHE_TTL_HOURS = 24; // Cache transcriptions for 24 hours
-const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
+const { MAX_REQUEST_SIZE, CACHE_TTL } = require('../lib/constants');
+const { isCacheFresh } = require('../lib/salesforce-client');
 
 /**
  * Get Avoma config from Supabase
@@ -27,19 +26,6 @@ async function getAvomaConfig(supabase) {
   }
 
   return config;
-}
-
-/**
- * Check if cached transcription is fresh
- */
-function isCacheFresh(lastSyncedAt) {
-  if (!lastSyncedAt) return false;
-  
-  const now = new Date();
-  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
-  const lastSynced = new Date(lastSyncedAt);
-  
-  return (now - lastSynced) < cacheExpiry;
 }
 
 /**
@@ -73,7 +59,7 @@ async function getCachedTranscription(supabase, customerIdentifier, salesforceAc
   
   return {
     transcription: transcription,
-    isFresh: isCacheFresh(transcription.last_synced_at),
+    isFresh: isCacheFresh(transcription.last_synced_at, CACHE_TTL.TRANSCRIPTIONS),
   };
 }
 
@@ -134,7 +120,7 @@ async function fetchFromAvoma(avomaClient, meetingUuid) {
   } catch (transcriptError) {
     // If transcription_uuid fails, try with meeting UUID as fallback
     if (transcriptUuid !== meetingUuid) {
-      console.warn(`Failed to get transcript with transcription_uuid ${transcriptUuid}, trying meeting UUID ${meetingUuid}`);
+      logWarn(`Failed to get transcript with transcription_uuid ${transcriptUuid}, trying meeting UUID ${meetingUuid}`);
       transcriptResult = await avomaClient.getMeetingTranscriptText(meetingUuid);
     } else {
       throw transcriptError;
@@ -187,7 +173,7 @@ async function cacheTranscription(supabase, transcriptionData, customerIdentifie
     .single();
 
   if (error) {
-    console.error('Error caching transcription:', error);
+    logError('Error caching transcription:', error);
     return null;
   }
 
@@ -195,35 +181,27 @@ async function cacheTranscription(supabase, transcriptionData, customerIdentifie
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   // Only allow POST and GET requests
   if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
-  // Check request size
-  const contentLength = req.headers['content-length'];
-  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-    return res.status(413).json({ error: 'Request too large' });
+  // Validate request size
+  const sizeValidation = validateRequestSize(req, MAX_REQUEST_SIZE.LARGE);
+  if (!sizeValidation.valid) {
+    return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(500).json({ 
-        error: 'Database not configured',
-        details: process.env.NODE_ENV === 'production' ? undefined : 'Supabase not configured'
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     // Get parameters
@@ -232,9 +210,7 @@ export default async function handler(req, res) {
       : req.query;
 
     if (!customerIdentifier && !salesforceAccountId && !meetingUuid) {
-      return res.status(400).json({ 
-        error: 'Missing required parameter: customerIdentifier, salesforceAccountId, or meetingUuid' 
-      });
+      return sendErrorResponse(res, new Error('Missing required parameter: customerIdentifier, salesforceAccountId, or meetingUuid'), 400);
     }
 
     const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
@@ -244,10 +220,8 @@ export default async function handler(req, res) {
       const cached = await getCachedTranscription(supabase, customerIdentifier, salesforceAccountId);
       
       if (cached && cached.isFresh) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Returning cached transcription (fresh)');
-        }
-        return res.status(200).json({
+        log('Returning cached transcription (fresh)');
+        return sendSuccessResponse(res, {
           transcription: cached.transcription.transcription_text,
           speakers: cached.transcription.speakers,
           meeting: {
@@ -280,7 +254,7 @@ export default async function handler(req, res) {
       if (!searchResult.meeting) {
         // Return success with empty transcription instead of error
         // This allows sentiment analysis to proceed with Salesforce data only
-        return res.status(200).json({ 
+        return sendSuccessResponse(res, { 
           transcription: '',
           meetingCounts: {
             total: searchResult.totalMeetings || 0,
@@ -296,9 +270,7 @@ export default async function handler(req, res) {
       // Use meeting UUID (could be uuid or id field)
       const meetingUuid = searchResult.meeting.uuid || searchResult.meeting.id;
       if (!meetingUuid) {
-        return res.status(500).json({ 
-          error: 'Meeting found but missing UUID' 
-        });
+        return sendErrorResponse(res, new Error('Meeting found but missing UUID'), 500, isProduction());
       }
 
       transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
@@ -317,7 +289,7 @@ export default async function handler(req, res) {
       salesforceAccountId
     );
 
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           transcription: transcriptionData.transcription,
           speakers: transcriptionData.speakers,
           meeting: {
@@ -333,13 +305,8 @@ export default async function handler(req, res) {
         });
 
   } catch (error) {
-    console.error('Error in avoma-transcription function:', error);
-    return res.status(500).json({ 
-      error: 'Failed to fetch transcription',
-      details: process.env.NODE_ENV === 'production' 
-        ? undefined 
-        : error.message 
-    });
+    logError('Error in avoma-transcription function:', error);
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }
 

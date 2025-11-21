@@ -5,37 +5,30 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
   
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured. Please contact your administrator.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     const { accountId, salesforceAccountId, limit = '50', days = '365' } = req.query;
 
     if (!accountId && !salesforceAccountId) {
-      return res.status(400).json({ error: 'Missing required parameter: accountId or salesforceAccountId' });
+      return sendErrorResponse(res, new Error('Missing required parameter: accountId or salesforceAccountId'), 400);
     }
 
     // Resolve account_id if we only have salesforceAccountId
@@ -48,7 +41,7 @@ export default async function handler(req, res) {
         .single();
       
       if (accountError || !account) {
-        return res.status(404).json({ error: 'Account not found' });
+        return sendErrorResponse(res, new Error('Account not found'), 404);
       }
       
       resolvedAccountId = account.id;
@@ -70,8 +63,8 @@ export default async function handler(req, res) {
     const { data: history, error } = await query;
 
     if (error) {
-      console.error('Error fetching sentiment history:', error);
-      return res.status(500).json({ error: 'Failed to fetch sentiment history' });
+      logError('Error fetching sentiment history:', error);
+      return sendErrorResponse(res, new Error('Failed to fetch sentiment history'), 500, isProduction());
     }
 
     // Calculate statistics
@@ -122,19 +115,14 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       history: history || [],
       stats,
     });
 
   } catch (error) {
-    console.error('Error in sentiment-history function:', error);
-    
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'An error occurred while fetching sentiment history'
-      : error.message || 'An error occurred while fetching sentiment history';
-    
-    return res.status(500).json({ error: errorMessage });
+    logError('Error in sentiment-history function:', error);
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }
 

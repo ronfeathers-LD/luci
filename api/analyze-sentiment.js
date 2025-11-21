@@ -7,95 +7,39 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
-
-// Constants
-const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
-const REQUEST_TIMEOUT = 30000; // 30 seconds
-const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
-
-// Simple in-memory rate limiter (for production, use Redis or similar)
-const rateLimitStore = new Map();
-
-// Rate limiting helper
-const checkRateLimit = (ip) => {
-  const now = Date.now();
-  const key = ip;
-  
-  if (!rateLimitStore.has(key)) {
-    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
-    return true;
-  }
-  
-  const record = rateLimitStore.get(key);
-  
-  // Reset if window expired
-  if (now > record.resetTime) {
-    record.count = 1;
-    record.resetTime = now + RATE_LIMIT_WINDOW;
-    return true;
-  }
-  
-  // Check if limit exceeded
-  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
-    return false;
-  }
-  
-  record.count++;
-  return true;
-};
-
-// Clean up old entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of rateLimitStore.entries()) {
-    if (now > record.resetTime) {
-      rateLimitStore.delete(key);
-    }
-  }
-}, RATE_LIMIT_WINDOW);
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, getClientIP, checkRateLimit, log, logError, isProduction } = require('../lib/api-helpers');
+const { MAX_REQUEST_SIZE, REQUEST_TIMEOUT, RATE_LIMIT } = require('../lib/constants');
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
   
   // Only allow POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
   // Rate limiting
-  const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || 
-                   req.headers['x-real-ip'] || 
-                   req.connection?.remoteAddress || 
-                   'unknown';
+  const clientIp = getClientIP(req);
   
-  if (!checkRateLimit(clientIp)) {
-    return res.status(429).json({ 
-      error: 'Too many requests. Please try again in a minute.',
-      retryAfter: 60
-    });
+  if (!checkRateLimit(clientIp, RATE_LIMIT.WINDOW, RATE_LIMIT.MAX_REQUESTS)) {
+    return sendErrorResponse(res, new Error('Too many requests. Please try again in a minute.'), 429);
   }
 
-  // Check request size
-  const contentLength = req.headers['content-length'];
-  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-    return res.status(413).json({ error: 'Request too large' });
+  // Validate request size
+  const sizeValidation = validateRequestSize(req, MAX_REQUEST_SIZE.LARGE);
+  if (!sizeValidation.valid) {
+    return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
   // Get API key from environment variable
   const apiKey = process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
-    console.error('GEMINI_API_KEY environment variable is not set');
-    return res.status(500).json({ error: 'Server configuration error' });
+    logError('GEMINI_API_KEY environment variable is not set');
+    return sendErrorResponse(res, new Error('Server configuration error'), 500, isProduction());
   }
 
   const { transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier } = req.body;
@@ -104,17 +48,17 @@ export default async function handler(req, res) {
   // transcription can be empty string (analysis can proceed with Salesforce data only)
   // but salesforceContext is required
   if (transcription === undefined || transcription === null || !salesforceContext) {
-    return res.status(400).json({ error: 'Missing required parameters: transcription and salesforceContext' });
+    return sendErrorResponse(res, new Error('Missing required parameters: transcription and salesforceContext'), 400);
   }
   
   // Validate input types and sizes
   // Allow empty string for transcription (no Avoma data available)
   if (typeof transcription !== 'string' || transcription.length > 50000) {
-    return res.status(400).json({ error: 'Invalid transcription: must be a string under 50,000 characters' });
+    return sendErrorResponse(res, new Error('Invalid transcription: must be a string under 50,000 characters'), 400);
   }
   
   if (typeof salesforceContext !== 'object' || salesforceContext === null) {
-    return res.status(400).json({ error: 'Invalid salesforceContext: must be an object' });
+    return sendErrorResponse(res, new Error('Invalid salesforceContext: must be an object'), 400);
   }
   
   try {
@@ -268,7 +212,7 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
     }
 
     if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-      return res.status(500).json({ error: 'Invalid response format from Gemini API' });
+      return sendErrorResponse(res, new Error('Invalid response format from Gemini API'), 500, isProduction());
     }
 
     const content = data.candidates[0].content.parts[0].text;
@@ -276,7 +220,7 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
     
     // Validate score is within range
     if (result.score < 1 || result.score > 10) {
-      return res.status(500).json({ error: 'Invalid sentiment score returned from API' });
+      return sendErrorResponse(res, new Error('Invalid sentiment score returned from API'), 500, isProduction());
     }
 
     // Save sentiment result to database for historical tracking (non-blocking)
@@ -311,32 +255,25 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
               analyzed_at: new Date().toISOString(),
             });
 
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('Sentiment result saved to history');
-            }
+            log('Sentiment result saved to history');
           }
         }
       } catch (dbError) {
         // Don't fail the request if database save fails - just log it
-        console.error('Error saving sentiment to history:', dbError);
+        logError('Error saving sentiment to history:', dbError);
       }
     }
 
-    return res.status(200).json(result);
+    return sendSuccessResponse(res, result);
   } catch (error) {
-    console.error('Error in analyze-sentiment function:', error);
+    logError('Error in analyze-sentiment function:', error);
     
     // Handle timeout specifically
     if (error.message === 'Request timeout') {
-      return res.status(504).json({ error: 'Request timeout' });
+      return sendErrorResponse(res, new Error('Request timeout'), 504, isProduction());
     }
     
-    // Don't expose internal error details in production
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'An error occurred while analyzing sentiment'
-      : error.message || 'An error occurred while analyzing sentiment';
-    
-    return res.status(500).json({ error: errorMessage });
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }
 

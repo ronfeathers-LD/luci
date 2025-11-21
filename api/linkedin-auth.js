@@ -9,29 +9,22 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
 const LINKEDIN_AUTH_URL = 'https://www.linkedin.com/oauth/v2/authorization';
 const LINKEDIN_TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken';
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     // Get LinkedIn config
@@ -42,17 +35,11 @@ export default async function handler(req, res) {
       .single();
 
     if (configError || !config) {
-      return res.status(400).json({
-        error: 'LinkedIn not configured',
-        message: 'Please configure LinkedIn Client ID and Secret first. See LINKEDIN_OAUTH_SETUP.md',
-      });
+      return sendErrorResponse(res, new Error('LinkedIn not configured. Please configure LinkedIn Client ID and Secret first. See LINKEDIN_OAUTH_SETUP.md'), 400);
     }
 
     if (!config.client_id || !config.client_secret) {
-      return res.status(400).json({
-        error: 'LinkedIn credentials missing',
-        message: 'Please configure LinkedIn Client ID and Secret in the database.',
-      });
+      return sendErrorResponse(res, new Error('LinkedIn credentials missing. Please configure LinkedIn Client ID and Secret in the database.'), 400);
     }
 
     const { code, state, error: oauthError } = req.query;
@@ -92,11 +79,7 @@ export default async function handler(req, res) {
 
     // Step 2: Handle OAuth error
     if (oauthError) {
-      return res.status(400).json({
-        error: 'LinkedIn OAuth error',
-        message: oauthError,
-        details: 'User denied authorization or an error occurred during LinkedIn OAuth.',
-      });
+      return sendErrorResponse(res, new Error(`LinkedIn OAuth error: ${oauthError}. User denied authorization or an error occurred during LinkedIn OAuth.`), 400);
     }
 
     // Step 3: Exchange authorization code for access token
@@ -123,21 +106,14 @@ export default async function handler(req, res) {
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text();
-        console.error('LinkedIn token exchange error:', errorText);
-        return res.status(400).json({
-          error: 'Failed to exchange authorization code',
-          message: 'Could not obtain access token from LinkedIn.',
-          details: errorText,
-        });
+        logError('LinkedIn token exchange error:', errorText);
+        return sendErrorResponse(res, new Error(`Failed to exchange authorization code. Could not obtain access token from LinkedIn: ${errorText}`), 400);
       }
 
       const tokenData = await tokenResponse.json();
       
       if (!tokenData.access_token) {
-        return res.status(400).json({
-          error: 'Invalid token response',
-          message: 'LinkedIn did not return an access token.',
-        });
+        return sendErrorResponse(res, new Error('Invalid token response. LinkedIn did not return an access token.'), 400);
       }
       
       // Calculate token expiration
@@ -156,11 +132,8 @@ export default async function handler(req, res) {
         .eq('id', config.id);
 
       if (updateError) {
-        console.error('Error updating LinkedIn config:', updateError);
-        return res.status(500).json({
-          error: 'Failed to store access token',
-          message: 'Could not save access token to database.',
-        });
+        logError('Error updating LinkedIn config:', updateError);
+        return sendErrorResponse(res, new Error('Failed to store access token. Could not save access token to database.'), 500, isProduction());
       }
 
       // Return success page
@@ -227,19 +200,11 @@ export default async function handler(req, res) {
       `);
     }
 
-    return res.status(400).json({ error: 'Invalid request' });
+    return sendErrorResponse(res, new Error('Invalid request'), 400);
 
   } catch (error) {
-    console.error('Error in linkedin-auth function:', error);
-    
-    const errorMessage = process.env.NODE_ENV === 'production' 
-      ? 'An error occurred during LinkedIn OAuth'
-      : error.message || 'An error occurred during LinkedIn OAuth';
-    
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      message: errorMessage,
-    });
+    logError('Error in linkedin-auth function:', error);
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 }
 

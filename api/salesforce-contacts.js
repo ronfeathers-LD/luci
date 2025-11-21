@@ -8,65 +8,9 @@
 
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { normalizeLinkedInURL } = require('../lib/linkedin-client');
-
-// Helper function to get jsforce client
-function getJsforceClient() {
-  try {
-    const jsforce = require('jsforce');
-    return jsforce;
-  } catch (error) {
-    console.warn('jsforce not available:', error.message);
-    return null;
-  }
-}
-
-// Constants
-const CACHE_TTL_HOURS = 24; // Cache contacts for 24 hours (contacts change less frequently)
-const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
-
-/**
- * Authenticate with Salesforce using jsforce
- */
-async function authenticateSalesforce(supabase) {
-  const { data: config, error: configError } = await supabase
-    .from('salesforce_configs')
-    .select('*')
-    .eq('is_active', true)
-    .single();
-
-  if (configError || !config) {
-    console.error('No active Salesforce configuration found in salesforce_configs table');
-    throw new Error('Salesforce configuration not found in Supabase. Please insert credentials into salesforce_configs table.');
-  }
-
-  const jsforce = getJsforceClient();
-  if (!jsforce) {
-    throw new Error('jsforce library not available');
-  }
-
-  const conn = new jsforce.Connection({
-    loginUrl: config.login_url || 'https://login.salesforce.com',
-  });
-
-  // Authenticate with username, password, and security token
-  await conn.login(config.username, config.password + (config.security_token || ''));
-
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('Salesforce authenticated successfully');
-  }
-
-  return {
-    connection: conn,
-    accessToken: conn.accessToken,
-  };
-}
-
-/**
- * Escape single quotes in SOQL queries to prevent injection
- */
-function escapeSOQL(str) {
-  return str.replace(/'/g, "\\'");
-}
+const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
+const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
 /**
  * Query Salesforce for Contacts
@@ -89,7 +33,7 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
                              WHERE AccountId = '${escapedAccountId}' 
                              AND (Contact_Status__c != 'Unqualified' OR Contact_Status__c = null)
                              ORDER BY LastName, FirstName 
-                             LIMIT 100`;
+                             LIMIT ${API_LIMITS.CONTACTS_PER_ACCOUNT}`;
   
   try {
     const result = await conn.query(customFieldsQuery);
@@ -133,15 +77,13 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
         throw stdError;
       }
     } else {
-      console.error('Error querying Salesforce Contacts:', error);
+      logError('Error querying Salesforce Contacts:', error);
       // Log more details about the error
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Contact query error details:', {
-          errorCode: error.errorCode,
-          message: error.message,
-          accountId: salesforceAccountId,
-        });
-      }
+      log('Contact query error details:', {
+        errorCode: error.errorCode,
+        message: error.message,
+        accountId: salesforceAccountId,
+      });
       throw error;
     }
   }
@@ -166,21 +108,18 @@ async function getCachedContacts(supabase, salesforceAccountId) {
   }
 
   // Check if cache is fresh (use most recent last_synced_at)
-  const now = new Date();
-  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
-  
-  // Find most recent sync time
-  const lastSynced = contacts
-    .map(c => c.last_synced_at ? new Date(c.last_synced_at) : null)
-    .filter(d => d !== null)
-    .sort((a, b) => b - a)[0];
+  const mostRecentSync = contacts.reduce((latest, current) => {
+    const currentDate = current.last_synced_at ? new Date(current.last_synced_at) : new Date(0);
+    const latestDate = latest ? new Date(latest) : new Date(0);
+    return currentDate > latestDate ? current.last_synced_at : latest;
+  }, null);
 
-  const isFresh = lastSynced && (now - lastSynced) < cacheExpiry;
+  const isFresh = isCacheFresh(mostRecentSync, CACHE_TTL.CONTACTS);
 
   return {
     contacts,
-    isFresh: !!isFresh,
-    lastSyncedAt: lastSynced ? lastSynced.toISOString() : null,
+    isFresh,
+    lastSyncedAt: mostRecentSync,
   };
 }
 
@@ -232,7 +171,7 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       .single();
 
     if (contactError) {
-      console.error(`Error syncing contact ${sfdcContact.Id}:`, contactError);
+      logError(`Error syncing contact ${sfdcContact.Id}:`, contactError);
       continue;
     }
 
@@ -242,33 +181,28 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
   return syncedContacts;
 }
 
-module.exports = async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
+export default async function handler(req, res) {
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
-  // Check request size
-  const contentLength = req.headers['content-length'];
-  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-    return res.status(413).json({ error: 'Request too large' });
+  // Validate request size
+  const sizeValidation = validateRequestSize(req, MAX_REQUEST_SIZE.DEFAULT);
+  if (!sizeValidation.valid) {
+    return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
   const { salesforceAccountId, accountId, forceRefresh } = req.query;
 
   // Validate input
   if (!salesforceAccountId) {
-    return res.status(400).json({ error: 'Missing required parameter: salesforceAccountId' });
+    return sendErrorResponse(res, new Error('Missing required parameter: salesforceAccountId'), 400);
   }
 
   const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
@@ -276,11 +210,8 @@ module.exports = async function handler(req, res) {
   try {
     const supabase = getSupabaseClient();
     
-    if (!supabase) {
-      return res.status(503).json({
-        error: 'Database not configured',
-        message: 'The application database is not properly configured. Please contact your administrator.',
-      });
+    if (!validateSupabase(supabase, res)) {
+      return; // Response already sent
     }
 
     // CACHE-FIRST: Check Supabase cache before querying Salesforce
@@ -288,11 +219,9 @@ module.exports = async function handler(req, res) {
       const cached = await getCachedContacts(supabase, salesforceAccountId);
       
       if (cached && cached.isFresh) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Using ${cached.contacts.length} cached contacts for account: ${salesforceAccountId}`);
-        }
+        log(`Using ${cached.contacts.length} cached contacts for account: ${salesforceAccountId}`);
         
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           contacts: cached.contacts.map(c => ({
             id: c.salesforce_id,
             firstName: c.first_name,
@@ -315,12 +244,10 @@ module.exports = async function handler(req, res) {
     }
 
     // Cache is stale or missing - query Salesforce
-    if (process.env.NODE_ENV !== 'production') {
-      if (shouldForceRefresh) {
-        console.log(`Force refresh requested for contacts, querying Salesforce`);
-      } else {
-        console.log(`Cache stale or missing for contacts, querying Salesforce`);
-      }
+    if (shouldForceRefresh) {
+      log(`Force refresh requested for contacts, querying Salesforce`);
+    } else {
+      log(`Cache stale or missing for contacts, querying Salesforce`);
     }
 
     const sfdcAuth = await authenticateSalesforce(supabase);
@@ -371,7 +298,7 @@ module.exports = async function handler(req, res) {
       linkedinURL: c.linkedin_url, // Include LinkedIn URL in response
     }));
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       contacts: contacts,
       total: contacts.length,
       cached: false,
@@ -379,18 +306,16 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Error in salesforce-contacts function:', error);
+    logError('Error in salesforce-contacts function:', error);
     
     // If Salesforce fails, try to return stale cache
     const supabase = getSupabaseClient();
-    if (!shouldForceRefresh && supabase) {
+    if (!shouldForceRefresh && supabase && validateSupabase(supabase, res)) {
       const staleCache = await getCachedContacts(supabase, salesforceAccountId);
       if (staleCache && staleCache.contacts.length > 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Salesforce query failed, using ${staleCache.contacts.length} stale cached contacts`);
-        }
+        log(`Salesforce query failed, using ${staleCache.contacts.length} stale cached contacts`);
         
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           contacts: staleCache.contacts.map(c => ({
             id: c.salesforce_id,
             firstName: c.first_name,
@@ -413,10 +338,7 @@ module.exports = async function handler(req, res) {
       }
     }
     
-    return res.status(500).json({
-      error: 'Failed to fetch contacts',
-      details: process.env.NODE_ENV === 'production' ? undefined : error.message,
-    });
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 };
 
