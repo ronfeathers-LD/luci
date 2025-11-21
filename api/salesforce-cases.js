@@ -6,68 +6,9 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
-
-// Helper function to get jsforce client
-function getJsforceClient() {
-  try {
-    const jsforce = require('jsforce');
-    return jsforce;
-  } catch (error) {
-    console.warn('jsforce not available:', error.message);
-    return null;
-  }
-}
-
-// Constants
-const CACHE_TTL_HOURS = 1; // Cache cases for 1 hour
-const MAX_REQUEST_SIZE = 1024 * 1024; // 1MB
-
-/**
- * Authenticate with Salesforce using jsforce
- */
-async function authenticateSalesforce(supabase) {
-  const { data: config, error: configError } = await supabase
-    .from('salesforce_configs')
-    .select('*')
-    .eq('is_active', true)
-    .single();
-
-  if (configError) {
-    throw new Error(`Error fetching Salesforce config: ${configError.message}`);
-  }
-  
-  if (!config) {
-    throw new Error('Salesforce configuration not found');
-  }
-  
-  const jsforce = getJsforceClient();
-  if (!jsforce) {
-    throw new Error('jsforce library not available');
-  }
-
-  const conn = new jsforce.Connection({
-    loginUrl: config.login_url || 'https://login.salesforce.com',
-  });
-
-  // Authenticate with username, password, and security token
-  const fullPassword = config.password + (config.security_token || '');
-  await conn.login(config.username, fullPassword);
-
-  return { connection: conn, config };
-}
-
-/**
- * Check if cached cases are fresh
- */
-function isCacheFresh(lastSyncedAt) {
-  if (!lastSyncedAt) return false;
-  
-  const now = new Date();
-  const cacheExpiry = CACHE_TTL_HOURS * 60 * 60 * 1000;
-  const lastSynced = new Date(lastSyncedAt);
-  
-  return (now - lastSynced) < cacheExpiry;
-}
+const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, log, logError, isProduction } = require('../lib/api-helpers');
+const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
 /**
  * Get cached cases from Supabase
@@ -79,8 +20,8 @@ async function getCachedCases(supabase, salesforceAccountId) {
     .from('cases')
     .select('*')
     .eq('salesforce_account_id', salesforceAccountId)
-    .order('created_date', { ascending: false })
-    .limit(25);
+      .order('created_date', { ascending: false })
+      .limit(API_LIMITS.CASES_PER_ACCOUNT);
 
   if (error || !cases || cases.length === 0) {
     return null;
@@ -95,7 +36,7 @@ async function getCachedCases(supabase, salesforceAccountId) {
 
   return {
     cases: cases,
-    isFresh: isCacheFresh(mostRecentSync),
+    isFresh: isCacheFresh(mostRecentSync, CACHE_TTL.CASES),
     lastSyncedAt: mostRecentSync,
   };
 }
@@ -105,21 +46,20 @@ async function getCachedCases(supabase, salesforceAccountId) {
  */
 async function querySalesforceCases(conn, salesforceAccountId) {
   // Escape account ID to prevent injection
-  const escapedAccountId = salesforceAccountId.replace(/'/g, "\\'");
+  const escapedAccountId = escapeSOQL(salesforceAccountId);
   
   // Query recent cases for the account
-  // Increased limit to 25 to show more cases
   const caseQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description 
                      FROM Case 
                      WHERE AccountId = '${escapedAccountId}' 
                      ORDER BY CreatedDate DESC 
-                     LIMIT 25`;
+                     LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
   
   try {
     const result = await conn.query(caseQuery);
     return result.records || [];
   } catch (error) {
-    console.error('Error querying Salesforce Cases:', error);
+    logError('Error querying Salesforce Cases:', error);
     throw error;
   }
 }
@@ -162,7 +102,7 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
       .single();
 
     if (caseError) {
-      console.error(`Error syncing case ${sfdcCase.Id}:`, caseError);
+      logError(`Error syncing case ${sfdcCase.Id}:`, caseError);
       continue;
     }
 
@@ -173,25 +113,20 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
 }
 
 module.exports = async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
   // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (handlePreflight(req, res)) {
+    return;
   }
 
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
-  // Check request size
-  const contentLength = req.headers['content-length'];
-  if (contentLength && parseInt(contentLength) > MAX_REQUEST_SIZE) {
-    return res.status(413).json({ error: 'Request too large' });
+  // Validate request size
+  const sizeValidation = validateRequestSize(req, MAX_REQUEST_SIZE.DEFAULT);
+  if (!sizeValidation.valid) {
+    return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
   const { salesforceAccountId, accountId, forceRefresh } = req.query;
@@ -218,11 +153,9 @@ module.exports = async function handler(req, res) {
       const cached = await getCachedCases(supabase, salesforceAccountId);
       
       if (cached && cached.isFresh) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Using ${cached.cases.length} cached cases for account: ${salesforceAccountId}`);
-        }
+        log(`Using ${cached.cases.length} cached cases for account: ${salesforceAccountId}`);
         
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           cases: cached.cases.map(c => ({
             id: c.salesforce_id,
             caseNumber: c.case_number,
@@ -244,12 +177,10 @@ module.exports = async function handler(req, res) {
     }
 
     // Cache is stale or missing - query Salesforce
-    if (process.env.NODE_ENV !== 'production') {
-      if (shouldForceRefresh) {
-        console.log(`Force refresh requested for cases, querying Salesforce`);
-      } else {
-        console.log(`Cache stale or missing for cases, querying Salesforce`);
-      }
+    if (shouldForceRefresh) {
+      log(`Force refresh requested for cases, querying Salesforce`);
+    } else {
+      log(`Cache stale or missing for cases, querying Salesforce`);
     }
 
     const sfdcAuth = await authenticateSalesforce(supabase);
@@ -299,7 +230,7 @@ module.exports = async function handler(req, res) {
       description: c.description,
     }));
 
-    return res.status(200).json({
+    return sendSuccessResponse(res, {
       cases: cases,
       total: cases.length,
       cached: false,
@@ -307,18 +238,16 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Error in salesforce-cases function:', error);
+    logError('Error in salesforce-cases function:', error);
     
     // If Salesforce fails, try to return stale cache
     const supabase = getSupabaseClient();
     if (!shouldForceRefresh && supabase) {
       const staleCache = await getCachedCases(supabase, salesforceAccountId);
       if (staleCache && staleCache.cases.length > 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Salesforce query failed, using ${staleCache.cases.length} stale cached cases`);
-        }
+        log(`Salesforce query failed, using ${staleCache.cases.length} stale cached cases`);
         
-        return res.status(200).json({
+        return sendSuccessResponse(res, {
           cases: staleCache.cases.map(c => ({
             id: c.salesforce_id,
             caseNumber: c.case_number,
@@ -340,10 +269,7 @@ module.exports = async function handler(req, res) {
       }
     }
     
-    return res.status(500).json({
-      error: 'Failed to fetch cases',
-      details: process.env.NODE_ENV === 'production' ? undefined : error.message,
-    });
+    return sendErrorResponse(res, error, 500, isProduction());
   }
 };
 
