@@ -580,17 +580,32 @@
                       }),
                     });
                     
-                    if (enrichResponse.ok) {
-                      const enrichData = await enrichResponse.json();
-                      if (enrichData.profile) {
-                        return {
-                          ...contact,
-                          linkedinProfile: enrichData.profile,
-                        };
+                    // Handle both 200 (success or graceful failure) and error responses
+                    if (enrichResponse.ok || enrichResponse.status === 200) {
+                      try {
+                        const enrichData = await enrichResponse.json();
+                        if (enrichData.success && enrichData.profile) {
+                          return {
+                            ...contact,
+                            linkedinProfile: enrichData.profile,
+                          };
+                        }
+                        // If enrichment not available, just continue with contact data
+                      } catch (parseErr) {
+                        // JSON parse error - continue with contact data only
+                        if (!isProduction) {
+                          console.warn('LinkedIn enrichment response parse error:', parseErr);
+                        }
+                      }
+                    } else {
+                      // Non-200 response - log but don't fail
+                      if (!isProduction) {
+                        console.warn('LinkedIn enrichment returned status:', enrichResponse.status);
                       }
                     }
                   } catch (err) {
                     // LinkedIn enrichment failed - continue with contact data only
+                    // Silently fail - LinkedIn enrichment is optional
                     if (!isProduction) {
                       console.warn('LinkedIn enrichment failed for contact:', contact.name, err);
                     }

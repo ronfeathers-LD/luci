@@ -24,6 +24,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Wrap everything in try-catch to ensure we never return 500
   try {
     const supabase = getSupabaseClient();
     
