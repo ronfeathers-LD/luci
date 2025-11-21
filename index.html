@@ -112,19 +112,26 @@
         });
 
         if (!response.ok) {
+          // Only throw error for actual API errors, not missing transcriptions
           const errorData = await response.json();
           throw new Error(errorData.error || 'Failed to fetch transcription');
         }
 
         const data = await response.json();
-        // Return transcription and meeting counts
+        // Return transcription, meeting counts, and any warning
         return {
           transcription: data.transcription || '',
           meetingCounts: data.meetingCounts || null,
+          warning: data.warning || null,
         };
       } catch (error) {
         logError('Error fetching Avoma transcription:', error);
-        throw error;
+        // Return empty data instead of throwing - allow analysis to continue
+        return {
+          transcription: '',
+          meetingCounts: null,
+          warning: 'Unable to fetch Avoma transcription. Analysis will proceed with Salesforce data only.',
+        };
       }
     };
 
@@ -459,6 +466,7 @@
       const [showResultsPage, setShowResultsPage] = useState(false); // Navigate to results page
       const [sentimentHistory, setSentimentHistory] = useState(null); // Historical sentiment data
       const [historyLoading, setHistoryLoading] = useState(false); // Loading state for history
+      const [avomaWarning, setAvomaWarning] = useState(null); // Warning message for missing Avoma data
       const maxRetries = 3;
       
       // Fetch cases for an account (can be called independently)
@@ -766,6 +774,17 @@
           // Extract transcription and meeting counts
           const transcription = avomaData.transcription || '';
           const meetingCounts = avomaData.meetingCounts || null;
+          
+          // Show warning if no transcription available (but don't error out)
+          if (avomaData.warning || !transcription) {
+            const warningMessage = avomaData.warning || 'No Avoma transcription available. Analysis will proceed with Salesforce account data only.';
+            setAvomaWarning(warningMessage);
+            if (!isProduction) {
+              console.warn('Avoma transcription warning:', warningMessage);
+            }
+          } else {
+            setAvomaWarning(null);
+          }
 
           // Add counts to salesforce context for sentiment analysis
           const enrichedContext = {
@@ -853,7 +872,7 @@
       };
 
       // Results Page Component
-      const ResultsPage = ({ sentiment, dataSources, analysisData, selectedAccount, cases, contacts, sentimentHistory, historyLoading, onBack, onShowHelp }) => {
+      const ResultsPage = ({ sentiment, dataSources, analysisData, selectedAccount, cases, contacts, sentimentHistory, historyLoading, avomaWarning, onBack, onShowHelp }) => {
         const [showDataDetails, setShowDataDetails] = useState(false);
 
         return (
@@ -889,6 +908,24 @@
                   </button>
                 </div>
               </div>
+
+              {/* Avoma Warning Banner */}
+              {avomaWarning && (
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded-lg" role="alert">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm text-yellow-700">
+                        <strong>Note:</strong> {avomaWarning}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Sentiment Score Display */}
               <div className="bg-white rounded-lg shadow-lg p-8 mb-6" role="region" aria-live="polite" aria-label="Sentiment analysis results">
@@ -1375,12 +1412,14 @@
               contacts={contacts}
               sentimentHistory={sentimentHistory}
               historyLoading={historyLoading}
+              avomaWarning={avomaWarning}
               onBack={() => {
                 setShowResultsPage(false);
                 setSentiment(null);
                 setAnalysisData(null);
                 setDataSources(null);
                 setSentimentHistory(null);
+                setAvomaWarning(null);
               }}
               onShowHelp={() => setShowHelp(true)}
             />

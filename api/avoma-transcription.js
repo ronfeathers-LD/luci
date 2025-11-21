@@ -278,13 +278,18 @@ export default async function handler(req, res) {
       const searchResult = await searchAvomaMeetings(avomaClient, customerIdentifier, salesforceAccountId);
       
       if (!searchResult.meeting) {
-        return res.status(404).json({ 
-          error: 'No meetings with ready transcripts found for this customer',
+        // Return success with empty transcription instead of error
+        // This allows sentiment analysis to proceed with Salesforce data only
+        return res.status(200).json({ 
+          transcription: '',
+          meetingCounts: {
+            total: searchResult.totalMeetings || 0,
+            ready: searchResult.readyMeetings || 0,
+          },
+          warning: 'No meetings with ready transcripts found for this customer',
           searchMethod: salesforceAccountId ? 'crm_account_ids' : 'customer_name',
           customerIdentifier: customerIdentifier,
           salesforceAccountId: salesforceAccountId || 'not provided',
-          totalMeetings: searchResult.totalMeetings,
-          readyMeetings: searchResult.readyMeetings,
         });
       }
 
