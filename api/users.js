@@ -9,7 +9,7 @@
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;

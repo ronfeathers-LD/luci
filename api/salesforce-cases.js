@@ -6,7 +6,8 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
+const { authenticateSalesforce, escapeSOQL } = require('../lib/salesforce-client');
+const { isCacheFresh } = require('../lib/cache-helpers');
 const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
@@ -112,7 +113,7 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
   return syncedCases;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;

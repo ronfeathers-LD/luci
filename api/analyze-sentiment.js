@@ -10,7 +10,7 @@ const { getSupabaseClient } = require('../lib/supabase-client');
 const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, getClientIP, checkRateLimit, log, logError, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, REQUEST_TIMEOUT, RATE_LIMIT } = require('../lib/constants');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;
@@ -106,12 +106,37 @@ Provide a comprehensive sentiment analysis considering:
    - Total Avoma calls: ${salesforceContext.total_avoma_calls || 0}
    - Ready transcripts: ${salesforceContext.ready_avoma_calls || 0}
 
-5. **LinkedIn Professional Context**${salesforceContext.linkedin_data ? `:
-   - Contacts with LinkedIn profiles: ${salesforceContext.linkedin_data.total_contacts_with_linkedin || 0}
+5. **Contact Intelligence & Professional Context**${salesforceContext.linkedin_data ? `:
+   - Total contacts: ${salesforceContext.linkedin_data.total_contacts_with_linkedin || 0}
    - Enriched profile data available: ${salesforceContext.linkedin_data.contacts_with_enriched_data || 0}
    - Key contact insights:
-${salesforceContext.linkedin_data.contacts.map(c => `     * ${c.name}: ${c.current_title || 'Title unknown'} at ${c.current_company || 'Company unknown'}${c.job_changed_recently ? ' (RECENT JOB CHANGE - potential risk indicator)' : ''}${c.profile_updated_recently ? ' (Profile recently updated)' : ''}`).join('\n')}
-   - Engagement signals: ${salesforceContext.linkedin_data.contacts.reduce((sum, c) => sum + (c.engagement_with_company?.posts_about_company || 0) + (c.engagement_with_company?.comments_on_company_posts || 0) + (c.engagement_with_company?.shares_of_company_content || 0), 0)} total interactions with company content` : ' (No LinkedIn data available)'}
+${salesforceContext.linkedin_data.contacts.map(c => {
+  const insights = [];
+  insights.push(`     * ${c.name}: ${c.current_title || 'Title unknown'} at ${c.current_company || 'Company unknown'}`);
+  if (c.department) insights.push(`       - Department: ${c.department}`);
+  if (c.reports_to_name) insights.push(`       - Reports to: ${c.reports_to_name} (hierarchy context)`);
+  if (c.owner_name) insights.push(`       - Relationship owner: ${c.owner_name}`);
+  if (c.last_activity_date) {
+    const daysSinceActivity = Math.floor((new Date() - new Date(c.last_activity_date)) / (24 * 60 * 60 * 1000));
+    insights.push(`       - Last activity: ${daysSinceActivity} days ago ${daysSinceActivity > 90 ? '(STALE - potential risk)' : ''}`);
+  }
+  if (c.job_changed_recently) insights.push(`       - ⚠️ RECENT JOB CHANGE (${c.days_in_current_role || 'unknown'} days in role - potential account risk)`);
+  if (c.job_change_likelihood && c.job_change_likelihood > 50) insights.push(`       - ⚠️ High job change likelihood: ${c.job_change_likelihood}%`);
+  if (c.company_industry) insights.push(`       - Company industry: ${c.company_industry}`);
+  if (c.company_size) insights.push(`       - Company size: ${c.company_size} employees`);
+  if (c.company_technologies && c.company_technologies.length > 0) insights.push(`       - Technologies: ${c.company_technologies.slice(0, 5).join(', ')}`);
+  if (c.previous_companies && c.previous_companies.length > 0) insights.push(`       - Previous companies: ${c.previous_companies.slice(0, 3).join(', ')}`);
+  if (c.email_status === 'verified') insights.push(`       - ✅ Verified email`);
+  if (c.email_status === 'invalid') insights.push(`       - ❌ Invalid email`);
+  return insights.join('\n');
+}).join('\n')}
+   - Engagement signals: ${salesforceContext.linkedin_data.contacts.reduce((sum, c) => sum + (c.engagement_with_company?.posts_about_company || 0) + (c.engagement_with_company?.comments_on_company_posts || 0) + (c.engagement_with_company?.shares_of_company_content || 0), 0)} total interactions with company content
+   - Risk indicators: ${salesforceContext.linkedin_data.contacts.filter(c => c.job_changed_recently || (c.job_change_likelihood && c.job_change_likelihood > 50)).length} contacts with job change signals
+   - Stale relationships: ${salesforceContext.linkedin_data.contacts.filter(c => {
+     if (!c.last_activity_date) return false;
+     const daysSinceActivity = Math.floor((new Date() - new Date(c.last_activity_date)) / (24 * 60 * 60 * 1000));
+     return daysSinceActivity > 90;
+   }).length} contacts with no activity in 90+ days` : ' (No contact enrichment data available)'}
 
 6. **Overall Assessment**:
    - Customer relationship health (at-risk, stable, or thriving)
@@ -207,7 +232,7 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
     const data = await response.json();
     
     if (data.error) {
-      console.error('Gemini API error:', data.error);
+      logError('Gemini API error:', data.error);
       return res.status(500).json({ error: `Gemini API error: ${data.error.message || 'Unknown error'}` });
     }
 

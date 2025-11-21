@@ -7,7 +7,7 @@
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;
@@ -31,20 +31,33 @@ export default async function handler(req, res) {
       return sendErrorResponse(res, new Error('Missing required parameter: accountId or salesforceAccountId'), 400);
     }
 
-    // Resolve account_id if we only have salesforceAccountId
+    // Resolve account_id - check if accountId is a UUID or a Salesforce ID
     let resolvedAccountId = accountId;
-    if (!resolvedAccountId && salesforceAccountId) {
-      const { data: account, error: accountError } = await supabase
-        .from('accounts')
-        .select('id')
-        .eq('salesforce_id', salesforceAccountId)
-        .single();
-      
-      if (accountError || !account) {
-        return sendErrorResponse(res, new Error('Account not found'), 404);
+    
+    // If accountId doesn't look like a UUID (has dashes and is 36 chars), or if we only have salesforceAccountId
+    const isUUID = accountId && accountId.includes('-') && accountId.length === 36;
+    
+    if (!isUUID) {
+      // accountId is either missing or is a Salesforce ID, so resolve it
+      const lookupId = accountId || salesforceAccountId;
+      if (lookupId) {
+        const { data: account, error: accountError } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('salesforce_id', lookupId)
+          .single();
+        
+        if (accountError || !account) {
+          logError('Account lookup error:', accountError);
+          return sendErrorResponse(res, new Error('Account not found'), 404);
+        }
+        
+        resolvedAccountId = account.id;
       }
-      
-      resolvedAccountId = account.id;
+    }
+    
+    if (!resolvedAccountId) {
+      return sendErrorResponse(res, new Error('Could not resolve account ID'), 400);
     }
 
     // Calculate date filter
@@ -64,7 +77,11 @@ export default async function handler(req, res) {
 
     if (error) {
       logError('Error fetching sentiment history:', error);
-      return sendErrorResponse(res, new Error('Failed to fetch sentiment history'), 500, isProduction());
+      logError('Error details:', error.message);
+      logError('Error code:', error.code);
+      logError('Error details:', error.details);
+      logError('Error hint:', error.hint);
+      return sendErrorResponse(res, new Error(`Failed to fetch sentiment history: ${error.message}`), 500, isProduction());
     }
 
     // Calculate statistics

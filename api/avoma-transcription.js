@@ -9,7 +9,7 @@ const { getSupabaseClient } = require('../lib/supabase-client');
 const { AvomaClient } = require('../lib/avoma-client');
 const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, CACHE_TTL } = require('../lib/constants');
-const { isCacheFresh } = require('../lib/salesforce-client');
+const { isCacheFresh } = require('../lib/cache-helpers');
 
 /**
  * Get Avoma config from Supabase
@@ -149,6 +149,11 @@ async function fetchFromAvoma(avomaClient, meetingUuid) {
 async function cacheTranscription(supabase, transcriptionData, customerIdentifier, salesforceAccountId) {
   if (!supabase || !transcriptionData) return null;
 
+  // Convert duration to integer (round if decimal) since database expects INTEGER
+  const duration = transcriptionData.meeting.duration 
+    ? Math.round(Number(transcriptionData.meeting.duration)) 
+    : null;
+
   const transcriptionRecord = {
     avoma_meeting_uuid: transcriptionData.meeting.uuid,
     salesforce_account_id: salesforceAccountId || null,
@@ -157,7 +162,7 @@ async function cacheTranscription(supabase, transcriptionData, customerIdentifie
     speakers: transcriptionData.speakers || null,
     meeting_subject: transcriptionData.meeting.subject || null,
     meeting_date: transcriptionData.meeting.meeting_date || null,
-    meeting_duration: transcriptionData.meeting.duration || null,
+    meeting_duration: duration, // Converted to integer
     meeting_url: transcriptionData.meeting.url || null,
     attendees: transcriptionData.meeting.attendees || null,
     last_synced_at: new Date().toISOString(),
@@ -180,7 +185,7 @@ async function cacheTranscription(supabase, transcriptionData, customerIdentifie
   return saved;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;

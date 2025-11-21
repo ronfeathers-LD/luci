@@ -9,3 +9,56 @@
   animation: spin 1s linear infinite;
 }
 
+/* Typography Styles - Montserrat Font Family */
+@layer components {
+  /* PRIMARY TITLE - Montserrat Black, 72px, 85% line spacing, -2% tracking, Uppercase */
+  .typography-primary-title {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 900; /* Black */
+    font-size: 72px;
+    line-height: 85%; /* 0.85 */
+    letter-spacing: -0.02em; /* -2% */
+    text-transform: uppercase;
+  }
+
+  /* SECONDARY TITLE - Montserrat Extrabold, 64px, 90% line spacing, -3% tracking, Uppercase */
+  .typography-secondary-title {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 800; /* Extrabold */
+    font-size: 64px;
+    line-height: 90%; /* 0.90 */
+    letter-spacing: -0.03em; /* -3% */
+    text-transform: uppercase;
+  }
+
+  /* HEADING - Montserrat Bold, 32px, 100% line spacing, -2% tracking, Sentence Case */
+  .typography-heading {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700; /* Bold */
+    font-size: 32px;
+    line-height: 100%; /* 1.0 */
+    letter-spacing: -0.02em; /* -2% */
+    text-transform: none; /* Sentence Case */
+  }
+
+  /* EYEBROW - Montserrat Bold, 16px, 100% line spacing, 2% tracking, Uppercase */
+  .typography-eyebrow {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700; /* Bold */
+    font-size: 16px;
+    line-height: 100%; /* 1.0 */
+    letter-spacing: 0.02em; /* 2% */
+    text-transform: uppercase;
+  }
+
+  /* BODY COPY - Montserrat Regular, 20px, 130% line spacing, -1% tracking, Sentence Case */
+  .typography-body {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 400; /* Regular */
+    font-size: 20px;
+    line-height: 130%; /* 1.3 */
+    letter-spacing: -0.01em; /* -1% */
+    text-transform: none; /* Sentence Case */
+  }
+}
+

@@ -8,7 +8,8 @@
 
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { authenticateSalesforce, escapeSOQL, isCacheFresh } = require('../lib/salesforce-client');
+const { authenticateSalesforce, escapeSOQL } = require('../lib/salesforce-client');
+const { isCacheFresh } = require('../lib/cache-helpers');
 const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
 
@@ -27,14 +28,12 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
     const userResult = await conn.query(userQuery);
     if (userResult.records && userResult.records.length > 0) {
       salesforceUserId = userResult.records[0].Id;
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`Found Salesforce User ID: ${salesforceUserId} for email: ${userEmail}`);
-      }
+      log(`Found Salesforce User ID: ${salesforceUserId} for email: ${userEmail}`);
     } else {
-      console.warn(`No Salesforce User found for email: ${userEmail}`);
+      logWarn(`No Salesforce User found for email: ${userEmail}`);
     }
   } catch (error) {
-    console.warn(`Could not find Salesforce User for email ${userEmail}:`, error.message);
+    logWarn(`Could not find Salesforce User for email ${userEmail}:`, error.message);
   }
   
   // Field selection - try custom fields first, fallback to standard
@@ -61,27 +60,23 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           ownerResult.records.forEach(acc => {
             accountMap.set(acc.Id, acc);
           });
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
-          }
+          log(`Found ${ownerResult.records.length} accounts owned by ${userEmail}`);
         }
         } catch (error) {
           if (error.errorCode === 'INVALID_FIELD') {
             // Log which field is invalid for debugging
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('INVALID_FIELD error details:', {
-                message: error.message,
-                errorCode: error.errorCode,
-                query: ownerQuery.substring(0, 200) + '...',
-              });
-            }
+            log('INVALID_FIELD error details:', {
+              message: error.message,
+              errorCode: error.errorCode,
+              query: ownerQuery.substring(0, 200) + '...',
+            });
             
             // Check if error is about Type field
             const typeError = error.message && error.message.includes('Type');
             
             if (typeError) {
               // Type field doesn't exist or has issues - retry without filter
-              console.warn('Type field issue on Account, querying without Type filter');
+              logWarn('Type field issue on Account, querying without Type filter');
               try {
                 ownerQuery = `SELECT ${customFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                 const ownerResult = await conn.query(ownerQuery);
@@ -89,14 +84,12 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                   ownerResult.records.forEach(acc => {
                     accountMap.set(acc.Id, acc);
                   });
-                  if (process.env.NODE_ENV !== 'production') {
-                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (without Type filter)`);
-                  }
+                  log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (without Type filter)`);
                 }
               } catch (retryError) {
                 // If still fails, might be custom fields issue
                 if (retryError.errorCode === 'INVALID_FIELD') {
-                  console.warn('Custom fields not found, trying alternative field names...');
+                  logWarn('Custom fields not found, trying alternative field names...');
                   
                   // Try alternative field names (including Employee_Band__c for tier)
                   const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
@@ -107,13 +100,11 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                       altResult.records.forEach(acc => {
                         accountMap.set(acc.Id, acc);
                       });
-                      if (process.env.NODE_ENV !== 'production') {
-                        console.log(`Found ${altResult.records.length} accounts with alternative field names`);
-                      }
+                      log(`Found ${altResult.records.length} accounts with alternative field names`);
                     }
                   } catch (altError) {
                     // If alternative fields also fail, fall back to standard fields
-                    console.warn('Alternative custom fields also not found, using standard fields only');
+                    logWarn('Alternative custom fields also not found, using standard fields only');
                     useCustomFields = false;
                     ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                     const ownerResult = await conn.query(ownerQuery);
@@ -121,9 +112,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                       ownerResult.records.forEach(acc => {
                         accountMap.set(acc.Id, acc);
                       });
-                      if (process.env.NODE_ENV !== 'production') {
-                        console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
-                      }
+                      log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
                     }
                   }
                 } else {
@@ -132,7 +121,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
               }
             } else {
               // Not a Type error, try alternative field names
-              console.warn('Custom fields not found, trying alternative field names...');
+              logWarn('Custom fields not found, trying alternative field names...');
               
               // Try alternative field names (including Employee_Band__c for tier)
               const altCustomFields = `Id, Name, Employee_Band__c, Expiring_Revenue__c, Tier__c, ContractValue__c, Type, Industry, AnnualRevenue, OwnerId, Owner.Name, Owner.Email`;
@@ -143,14 +132,12 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                   altResult.records.forEach(acc => {
                     accountMap.set(acc.Id, acc);
                   });
-                  if (process.env.NODE_ENV !== 'production') {
-                    console.log(`Found ${altResult.records.length} accounts with alternative field names`);
-                  }
+                  log(`Found ${altResult.records.length} accounts with alternative field names`);
                 }
               } catch (altError) {
                 // If alternative fields also fail, check if it's Type error
                 if (altError.errorCode === 'INVALID_FIELD' && altError.message && altError.message.includes('Type')) {
-                  console.warn('Type field not found, retrying without Type filter');
+                  logWarn('Type field not found, retrying without Type filter');
                   ownerQuery = `SELECT ${altCustomFields} FROM Account WHERE Owner.Email = '${escapedEmail}' ORDER BY Name LIMIT 100`;
                   const altResult = await conn.query(ownerQuery);
                   if (altResult.records) {
@@ -160,7 +147,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                   }
                 } else {
                   // If alternative fields also fail, fall back to standard fields
-                  console.warn('Alternative custom fields also not found, using standard fields only');
+                  logWarn('Alternative custom fields also not found, using standard fields only');
               useCustomFields = false;
               ownerQuery = `SELECT ${standardFields} FROM Account WHERE Owner.Email = '${escapedEmail}' AND Type != 'Former Customer' ORDER BY Name LIMIT 100`;
               try {
@@ -169,9 +156,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                   ownerResult.records.forEach(acc => {
                     accountMap.set(acc.Id, acc);
                   });
-                  if (process.env.NODE_ENV !== 'production') {
-                    console.log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
-                  }
+                  log(`Found ${ownerResult.records.length} accounts owned by ${userEmail} (standard fields only)`);
                 }
               } catch (stdError) {
                 // Last resort: standard fields without Type filter
@@ -195,7 +180,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
           }
         }
     } catch (error) {
-      console.error('Error querying accounts by owner:', error);
+      logError('Error querying accounts by owner:', error);
     }
     
     // Query 2: Accounts from AccountTeamMember (if we have User ID)
@@ -207,8 +192,6 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         
         if (teamResult.records && teamResult.records.length > 0) {
           const accountIds = teamResult.records.map(tm => tm.AccountId);
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Found ${accountIds.length} accounts in AccountTeamMember`);
           }
           
           // Query accounts by IDs (Salesforce allows up to 200 IDs in IN clause)
@@ -224,9 +207,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
               accountResult.records.forEach(acc => {
                 accountMap.set(acc.Id, acc);
               });
-              if (process.env.NODE_ENV !== 'production') {
-                console.log(`Found ${accountResult.records.length} accounts from AccountTeamMember`);
-              }
+              log(`Found ${accountResult.records.length} accounts from AccountTeamMember`);
             }
           } catch (error) {
             if (error.errorCode === 'INVALID_FIELD' && useCustomFields) {
@@ -237,15 +218,15 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
                 accountResult.records.forEach(acc => {
                   accountMap.set(acc.Id, acc);
                 });
+                log(`Found ${accountResult.records.length} accounts from AccountTeamMember (standard fields)`);
               }
             } else {
-              console.error('Error querying accounts from AccountTeamMember:', error);
+              logError('Error querying accounts from AccountTeamMember:', error);
             }
           }
+        } catch (error) {
+          logError('Error querying AccountTeamMember:', error);
         }
-      } catch (error) {
-        console.error('Error querying AccountTeamMember:', error);
-      }
     }
     
     // Convert Map to array
@@ -261,7 +242,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         allAccounts = result.records || [];
       } catch (error) {
         if (error.errorCode === 'INVALID_FIELD') {
-          console.warn('Custom fields not found, using standard fields only');
+          logWarn('Custom fields not found, using standard fields only');
           adminQuery = `SELECT ${standardFields} FROM Account WHERE Type != 'Former Customer' ORDER BY Name LIMIT 100`;
           const result = await conn.query(adminQuery);
           allAccounts = result.records || [];
@@ -270,7 +251,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
         }
       }
     } catch (error) {
-      console.error('Error querying all accounts:', error);
+      logError('Error querying all accounts:', error);
       throw error;
     }
   }
@@ -348,7 +329,7 @@ async function searchSalesforceAccounts(conn, searchTerm) {
       
       if (typeError) {
         // Type field doesn't exist or has issues - retry without filter
-        console.warn('Type field issue on Account, searching without Type filter');
+        logWarn('Type field issue on Account, searching without Type filter');
         try {
           searchQuery = `SELECT ${customFields} FROM Account WHERE Name LIKE '%${escapedSearch}%' ORDER BY Name LIMIT 20`;
           const result = await conn.query(searchQuery);
@@ -383,7 +364,7 @@ async function searchSalesforceAccounts(conn, searchTerm) {
         }
       }
     } else {
-      console.error('Error searching accounts:', error);
+      logError('Error searching accounts:', error);
       throw error;
     }
   }
@@ -429,7 +410,7 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
     
       // Log field values for debugging (always log first account to help diagnose issues)
       if (sfdcAccounts.length > 0 && sfdcAccounts.indexOf(sfdcAccount) === 0) {
-        console.log('Sample account fields from Salesforce:', {
+        log('Sample account fields from Salesforce:', {
           Id: sfdcAccount.Id,
           Name: sfdcAccount.Name,
           'Employee_Band__c': sfdcAccount.Employee_Band__c,
@@ -465,7 +446,7 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
       .single();
 
     if (accountError) {
-      console.error(`Error syncing account ${sfdcAccount.Id}:`, accountError);
+      logError(`Error syncing account ${sfdcAccount.Id}:`, accountError);
       continue;
     }
 
@@ -488,7 +469,7 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
         });
 
       if (relationError) {
-        console.error(`Error creating user-account relationship:`, relationError);
+        logError(`Error creating user-account relationship:`, relationError);
       }
     }
 
@@ -532,7 +513,7 @@ async function getCachedAccounts(supabase, userId, email, role) {
 
   // Get accounts from user_accounts relationships
   // These should only be accounts the user owns or is a team member of
-  const { data: userAccounts } = await supabase
+  const { data: userAccounts, error: userAccountsError } = await supabase
     .from('user_accounts')
     .select(`
       account_id,
@@ -550,6 +531,11 @@ async function getCachedAccounts(supabase, userId, email, role) {
       )
     `)
     .eq('user_id', user.id);
+
+  if (userAccountsError) {
+    logError('Error fetching user_accounts:', userAccountsError);
+    return { accounts: null, needsRefresh: true };
+  }
 
   if (!userAccounts || userAccounts.length === 0) {
     return { accounts: null, needsRefresh: true };
@@ -570,32 +556,37 @@ async function getCachedAccounts(supabase, userId, email, role) {
   const cacheExpiry = CACHE_TTL.ACCOUNTS * 60 * 60 * 1000; // Convert hours to milliseconds
   let needsRefresh = false;
 
-  const accounts = userAccounts.map(ua => {
-    const account = ua.accounts;
-    const lastSynced = account.last_synced_at ? new Date(account.last_synced_at) : null;
-    
-    // Check if this account needs refresh
-    if (!lastSynced || (now - lastSynced) > cacheExpiry) {
-      needsRefresh = true;
-    }
+  const accounts = userAccounts
+    .filter(ua => ua.accounts) // Filter out any null accounts
+    .map(ua => {
+      const account = ua.accounts;
+      if (!account) return null;
+      
+      const lastSynced = account.last_synced_at ? new Date(account.last_synced_at) : null;
+      
+      // Check if this account needs refresh
+      if (!lastSynced || (now - lastSynced) > cacheExpiry) {
+        needsRefresh = true;
+      }
 
-    return {
-      id: account.salesforce_id || account.id,
-      salesforceId: account.salesforce_id,
-      name: account.name,
-      accountTier: account.account_tier,
-      contractValue: account.contract_value,
-      industry: account.industry,
-      annualRevenue: account.annual_revenue ? parseFloat(account.annual_revenue) : null,
-      ownerId: account.owner_id,
-      ownerName: account.owner_name,
-    };
-  });
+      return {
+        id: account.salesforce_id || account.id,
+        salesforceId: account.salesforce_id,
+        name: account.name,
+        accountTier: account.account_tier,
+        contractValue: account.contract_value,
+        industry: account.industry,
+        annualRevenue: account.annual_revenue ? parseFloat(account.annual_revenue) : null,
+        ownerId: account.owner_id,
+        ownerName: account.owner_name,
+      };
+    })
+    .filter(acc => acc !== null); // Remove any null entries
 
   return { accounts, needsRefresh };
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // Handle preflight requests
   if (handlePreflight(req, res)) {
     return;
@@ -641,10 +632,6 @@ export default async function handler(req, res) {
         
         if (cachedSearch && cachedSearch.isFresh) {
           // Use cached results (fresh)
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Using ${cachedSearch.accounts.length} cached search results for: ${search}`);
-          }
-          
           const accounts = cachedSearch.accounts.map(acc => ({
             id: acc.salesforce_id || acc.id,
             salesforceId: acc.salesforce_id,
@@ -665,15 +652,8 @@ export default async function handler(req, res) {
             isSearch: true,
             cached: true,
           });
-        }
-        
-        // Cache is stale or missing - query Salesforce
-        if (process.env.NODE_ENV !== 'production') {
-          if (cachedSearch && !cachedSearch.isFresh) {
-            console.log(`Cache stale for search: ${search}, refreshing from Salesforce`);
-          } else {
-            console.log(`No cache found for search: ${search}, querying Salesforce`);
-          }
+        } else {
+          log(`No cache found for search: ${search}, querying Salesforce`);
         }
         
         const sfdcAuth = await authenticateSalesforce(supabase);
@@ -704,15 +684,11 @@ export default async function handler(req, res) {
           cached: false,
         });
       } catch (searchError) {
-        console.error('Salesforce search error:', searchError);
+        logError('Salesforce search error:', searchError);
         
         // If Salesforce fails but we have stale cache, use it
         const staleCache = await searchCachedAccounts(supabase, search);
         if (staleCache && staleCache.accounts.length > 0) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Salesforce search failed, using ${staleCache.accounts.length} stale cached results`);
-          }
-          
           const accounts = staleCache.accounts.map(acc => ({
             id: acc.salesforce_id || acc.id,
             salesforceId: acc.salesforce_id,
@@ -738,7 +714,7 @@ export default async function handler(req, res) {
         
         return res.status(500).json({
           error: 'Failed to search accounts',
-          details: process.env.NODE_ENV === 'production' ? undefined : searchError.message,
+          details: isProduction ? undefined : searchError.message,
         });
       }
     }
@@ -748,32 +724,51 @@ export default async function handler(req, res) {
 
     // First, get the user by userId or email
     let user;
-    if (userId) {
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+    try {
+      if (userId) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single();
 
-      if (userError && userError.code !== 'PGRST116') {
-        throw userError;
+        if (userError) {
+          if (userError.code === 'PGRST116') {
+            // User not found
+            user = null;
+          } else {
+            logError('Error fetching user by ID:', userError);
+            throw userError;
+          }
+        } else {
+          user = userData;
+        }
+      } else if (email) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', email)
+          .single();
+
+        if (userError) {
+          if (userError.code === 'PGRST116') {
+            // User not found
+            user = null;
+          } else {
+            logError('Error fetching user by email:', userError);
+            throw userError;
+          }
+        } else {
+          user = userData;
+        }
       }
-      user = userData;
-    } else if (email) {
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', email)
-        .single();
 
-      if (userError && userError.code !== 'PGRST116') {
-        throw userError;
+      if (!user) {
+        return sendErrorResponse(res, new Error('User not found'), 404);
       }
-      user = userData;
-    }
-
-    if (!user) {
-      return sendErrorResponse(res, new Error('User not found'), 404);
+    } catch (userFetchError) {
+      logError('Error in user lookup:', userFetchError);
+      return sendErrorResponse(res, userFetchError, 500);
     }
 
     // Check cache first (unless force refresh is requested)
@@ -782,42 +777,65 @@ export default async function handler(req, res) {
     let needsRefresh = true;
 
     if (!shouldForceRefresh) {
-      const cacheResult = await getCachedAccounts(supabase, user.id, user.email, user.role);
-      
-      if (cacheResult.accounts && cacheResult.accounts.length > 0) {
-        accounts = cacheResult.accounts;
-        needsRefresh = cacheResult.needsRefresh;
+      try {
+        const cacheResult = await getCachedAccounts(supabase, user.id, user.email, user.role);
         
-        if (!needsRefresh) {
-          useCached = true;
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Using ${accounts.length} cached accounts (fresh)`);
+        if (cacheResult && cacheResult.accounts && cacheResult.accounts.length > 0) {
+          accounts = cacheResult.accounts;
+          needsRefresh = cacheResult.needsRefresh || false;
+          
+          if (!needsRefresh) {
+            useCached = true;
+            if (!isProduction()) {
+              log(`Using ${accounts.length} cached accounts (fresh)`);
+            }
+          } else {
+            if (!isProduction()) {
+              log(`Found ${accounts.length} cached accounts, but cache is stale`);
+            }
           }
+        } else {
+          log('No cached accounts found - will query Salesforce');
         }
+      } catch (cacheError) {
+        logError('Error getting cached accounts:', cacheError);
+        // Continue - will try Salesforce or return empty
+        accounts = [];
+        needsRefresh = true;
       }
     }
 
     // Query Salesforce if cache is stale/missing or force refresh requested
-    if (needsRefresh || shouldForceRefresh) {
+    // BUT: If we have cached accounts, only try Salesforce if force refresh is explicitly requested
+    // This prevents unnecessary Salesforce calls when we have valid cached data
+    const shouldTrySalesforce = (needsRefresh || shouldForceRefresh) && (shouldForceRefresh || accounts.length === 0);
+    
+    if (shouldTrySalesforce) {
       try {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Attempting Salesforce authentication...');
-      }
-      const sfdcAuth = await authenticateSalesforce(supabase);
-      
-      const sfdcAccounts = await querySalesforceAccounts(
-        sfdcAuth.connection,
-        user.id,
-        user.email,
-        user.role || role
-      );
+        if (!isProduction()) {
+          log('Attempting Salesforce authentication...');
+        }
+        const sfdcAuth = await authenticateSalesforce(supabase);
+        
+        if (!isProduction()) {
+          log('Salesforce authenticated, querying accounts...');
+        }
+        const sfdcAccounts = await querySalesforceAccounts(
+          sfdcAuth.connection,
+          user.id,
+          user.email,
+          user.role || role
+        );
 
-      // Sync accounts to Supabase
-      const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
-      
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`Synced ${syncedAccounts.length} accounts to Supabase`);
-      }
+        // Sync accounts to Supabase
+        if (!isProduction()) {
+          log(`Syncing ${sfdcAccounts.length} accounts to Supabase...`);
+        }
+        const syncedAccounts = await syncAccountsToSupabase(supabase, sfdcAccounts, user.id);
+        
+        if (!isProduction()) {
+          log(`Synced ${syncedAccounts.length} accounts to Supabase`);
+        }
 
         // Transform to expected format
         accounts = syncedAccounts.map(acc => ({
@@ -834,24 +852,28 @@ export default async function handler(req, res) {
         
         useCached = false;
       } catch (sfdcError) {
-        console.error('Salesforce API error:', sfdcError);
+        logError('Salesforce API error:', sfdcError);
+        logError('Error details:', sfdcError.message);
+        if (sfdcError.stack) {
+          logError('Error stack:', sfdcError.stack);
+        }
         
         // If we have cached accounts, use them even if stale
         if (accounts.length > 0) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
-          }
+          logWarn(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
           useCached = true;
         } else {
           // No cached accounts available, return error
-          return res.status(500).json({
-            error: 'Failed to fetch accounts from Salesforce and no cached accounts available',
-            details: process.env.NODE_ENV === 'production' 
-              ? 'Check server logs for details' 
-              : sfdcError.message,
-          });
+          logError('No cached accounts available and Salesforce query failed');
+          return sendErrorResponse(res, new Error('Failed to fetch accounts from Salesforce and no cached accounts available'), 500);
         }
       }
+    } else if (accounts.length > 0) {
+      // We have cached accounts and don't need to refresh
+      if (!isProduction()) {
+        log(`Using ${accounts.length} cached accounts (stale but available)`);
+      }
+      useCached = true;
     }
 
     return sendSuccessResponse(res, {
@@ -863,7 +885,17 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     logError('Error in salesforce-accounts function:', error);
-    logError('Error stack:', error.stack);
+    logError('Error message:', error.message);
+    if (error.stack) {
+      logError('Error stack:', error.stack);
+    }
+    if (error.code) {
+      logError('Error code:', error.code);
+    }
+    if (error.details) {
+      logError('Error details:', error.details);
+    }
     return sendErrorResponse(res, error, 500, isProduction());
   }
 }
+

@@ -34,7 +34,7 @@ A Vercel-ready React application that analyzes customer sentiment by combining A
 
 ### Local Development
 
-For detailed local development setup, see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
+For detailed local development setup, see [docs/LOCAL_DEVELOPMENT.md](./docs/LOCAL_DEVELOPMENT.md).
 
 **Quick Start:**
 
@@ -109,8 +109,10 @@ LUCI/
 ├── package.json                # Dependencies and scripts
 ├── tailwind.config.js          # Tailwind configuration
 ├── vercel.json                 # Vercel deployment config
-├── DEPLOYMENT.md               # Detailed deployment guide
-├── HEALTH_CHECK.md             # Troubleshooting guide
+├── docs/                       # Documentation folder
+│   ├── DEPLOYMENT.md           # Detailed deployment guide
+│   ├── HEALTH_CHECK.md         # Troubleshooting guide
+│   └── ...                     # Additional setup and troubleshooting docs
 └── OPTIMIZATIONS.md            # Optimization report
 ```
 
@@ -210,7 +212,7 @@ The application is a single-file React app (`index.html`) that includes:
 
 ## Troubleshooting
 
-See [HEALTH_CHECK.md](./HEALTH_CHECK.md) for detailed troubleshooting guide.
+See [docs/HEALTH_CHECK.md](./docs/HEALTH_CHECK.md) for detailed troubleshooting guide.
 
 Common issues:
 - **Google Sign-In button not appearing** → Check OAuth origins in Google Console
@@ -219,8 +221,9 @@ Common issues:
 
 ## Documentation
 
-- [DEPLOYMENT.md](./DEPLOYMENT.md) - Step-by-step deployment guide
-- [HEALTH_CHECK.md](./HEALTH_CHECK.md) - Troubleshooting and health checks
+- [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) - Step-by-step deployment guide
+- [docs/HEALTH_CHECK.md](./docs/HEALTH_CHECK.md) - Troubleshooting and health checks
+- [docs/](./docs/) - All documentation files
 - [OPTIMIZATIONS.md](./OPTIMIZATIONS.md) - Optimization report and best practices
 
 ## License
