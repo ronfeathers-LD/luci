@@ -120,11 +120,9 @@
     };
     
     // Run version check immediately
-    if (checkVersionUpdate()) {
-      // If version changed, we're reloading - don't continue
-      // This return won't execute, but it's here for clarity
-      return;
-    }
+    // If version changed, checkVersionUpdate() will trigger a reload
+    // so the code below won't execute anyway - no need for return statement
+    checkVersionUpdate();
     
     // Helper function to format currency as US dollars
     const formatCurrency = (value) => {
