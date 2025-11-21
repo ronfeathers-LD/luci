@@ -1075,7 +1075,7 @@
         return (
           <div className="min-h-screen bg-lean-almost-white">
             {/* Header with Logo */}
-            <header className="bg-lean-black px-4 sm:px-6 lg:px-8 py-4">
+            <header className="bg-[#2a2a2a] px-4 sm:px-6 lg:px-8 py-4">
               <div className="max-w-6xl mx-auto flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   {/* LD Logo */}
@@ -1085,17 +1085,17 @@
                     className="h-12 w-auto flex-shrink-0"
                   />
                   <div className="text-left">
-                    <h1 className="typography-heading text-lean-white mb-1">
+                    <h1 className="typography-heading text-[#f7f7f7] mb-1">
                       L.U.C.I.
                     </h1>
-                    <p className="text-sm text-lean-white/80">
+                    <p className="text-sm text-[#f7f7f7]">
                       LeanData Unified Customer Intelligence
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={onShowHelp}
-                  className="px-4 py-2 text-sm font-medium text-lean-white bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
+                  className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
                   aria-label="Show help and explanation"
                 >
                   Help
@@ -1741,7 +1741,7 @@
       return (
         <div className="min-h-screen bg-lean-almost-white">
           {/* Header with Logo */}
-          <header className="bg-lean-black px-4 sm:px-6 lg:px-8 py-4">
+          <header className="bg-[#2a2a2a] px-4 sm:px-6 lg:px-8 py-4">
             <div className="max-w-6xl mx-auto flex items-center justify-between">
               <div className="flex items-center gap-4">
                   {/* LD Logo */}
@@ -1751,10 +1751,10 @@
                     className="h-12 w-auto flex-shrink-0"
                   />
                 <div className="text-left">
-                  <h1 className="typography-heading text-lean-white mb-1">
+                  <h1 className="typography-heading text-[#f7f7f7] mb-1">
                     L.U.C.I.
                   </h1>
-                  <p className="text-sm text-lean-white/80">
+                  <p className="text-sm text-[#f7f7f7]">
                     LeanData Unified Customer Intelligence
                   </p>
                 </div>
@@ -1762,7 +1762,7 @@
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setShowHelp(!showHelp)}
-                  className="px-4 py-2 text-sm font-medium text-lean-white bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all flex items-center gap-2"
+                  className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all flex items-center gap-2"
                   aria-label="Show help and information"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1770,12 +1770,12 @@
                   </svg>
                   {showHelp ? 'Hide Help' : 'Help'}
                 </button>
-                <div className="flex items-center gap-4 bg-lean-black/50 px-4 py-2 rounded-lg">
+                <div className="flex items-center gap-4 bg-[#2a2a2a]/50 px-4 py-2 rounded-lg">
                   <div className="text-right">
-                    <p className="text-sm font-medium text-lean-white">
+                    <p className="text-sm font-medium text-[#f7f7f7]">
                       {user?.name || 'User'}
                     </p>
-                    <p className="text-xs text-lean-white/70">
+                    <p className="text-xs text-[#f7f7f7]">
                       {user?.email}
                     </p>
                     {user?.role && (
@@ -1790,7 +1790,7 @@
                       localStorage.removeItem('userInfo');
                       window.location.reload();
                     }}
-                    className="px-4 py-2 text-sm font-medium text-lean-white bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all whitespace-nowrap"
+                    className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all whitespace-nowrap"
                   >
                     Sign Out
                   </button>

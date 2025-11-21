@@ -24,10 +24,11 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   
   // Query with comprehensive fields - user will ensure custom fields exist in Salesforce
   // Note: SOQL does not support comments, so all field selections are inline
+  // Note: ReportsToId is the lookup field, ReportsTo.Name uses the relationship
   const query = `SELECT Id, FirstName, LastName, Name, Email, Title, Phone, MobilePhone, 
-                Contact_Status__c, Status__c, AccountId, Account.Name,
+                Contact_Status__c, AccountId, Account.Name,
                 Person_LinkedIn__c,
-                Department, ReportsTo, ReportsTo.Name, OwnerId, Owner.Name,
+                Department, ReportsToId, ReportsTo.Name, OwnerId, Owner.Name,
                 DoNotCall, HasOptedOutOfEmail,
                 MailingStreet, MailingCity, MailingState, MailingPostalCode, MailingCountry,
                 LastActivityDate, CreatedDate, LastModifiedDate,
@@ -47,7 +48,7 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   
   // Filter out any contacts with Unqualified status (in case query didn't filter properly)
   const filteredContacts = (result.records || []).filter(contact => {
-    const status = contact.Contact_Status__c || contact.Status__c || null;
+    const status = contact.Contact_Status__c || null;
     return status !== 'Unqualified';
   });
   
@@ -108,7 +109,7 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
 
   for (const sfdcContact of sfdcContacts) {
     // Skip contacts with Unqualified status (shouldn't happen if query worked, but double-check)
-    const contactStatus = sfdcContact.Contact_Status__c || sfdcContact.Status__c || sfdcContact.Status || null;
+    const contactStatus = sfdcContact.Contact_Status__c || null;
     if (contactStatus === 'Unqualified') {
       continue;
     }
@@ -133,7 +134,7 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       linkedin_url: linkedinURL, // Store normalized LinkedIn URL for enrichment
       // Relationship & Hierarchy
       department: sfdcContact.Department || null,
-      reports_to_id: sfdcContact.ReportsTo || null,
+      reports_to_id: sfdcContact.ReportsToId || null,
       reports_to_name: sfdcContact.ReportsTo?.Name || null,
       owner_id: sfdcContact.OwnerId || null,
       owner_name: sfdcContact.Owner?.Name || null,
@@ -267,24 +268,38 @@ module.exports = async function handler(req, res) {
       // First, try to use accountId if it looks like a UUID (has dashes)
       if (accountId && accountId.includes('-') && accountId.length === 36) {
         // It's likely a UUID, verify it exists
-        const { data: account } = await supabase
+        const { data: account, error: accountError } = await supabase
           .from('accounts')
           .select('id')
           .eq('id', accountId)
           .single();
-        if (account) {
+        
+        if (accountError) {
+          // PGRST116 means no rows found - that's okay, we'll try salesforce_id lookup
+          if (accountError.code !== 'PGRST116') {
+            logError('Error looking up account by UUID:', accountError);
+          }
+        } else if (account) {
           accountUuid = account.id;
         }
       }
       
       // If we don't have a valid UUID yet, look it up by salesforce_id
       if (!accountUuid) {
-        const { data: account } = await supabase
+        const { data: account, error: accountError } = await supabase
           .from('accounts')
           .select('id')
           .eq('salesforce_id', salesforceAccountId)
           .single();
-        accountUuid = account?.id || null;
+        
+        if (accountError) {
+          // PGRST116 means no rows found - that's okay, account might not exist in cache yet
+          if (accountError.code !== 'PGRST116') {
+            logError('Error looking up account by salesforce_id:', accountError);
+          }
+        } else if (account) {
+          accountUuid = account.id;
+        }
       }
 
       // Sync contacts to Supabase cache
