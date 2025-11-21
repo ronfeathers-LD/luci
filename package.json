@@ -5,7 +5,8 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/input.css -o ./dist/output.css --minify",
     "build:html": "node build.js",
-    "build": "npm run build:css && npm run build:html"
+    "build": "npm run build:css && npm run build:html",
+    "dev": "vercel dev"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.3",
