@@ -3,7 +3,10 @@
  * 
  * This function securely handles the Gemini API call server-side,
  * protecting the API key from client-side exposure.
+ * Also saves sentiment results to database for historical tracking.
  */
+
+const { getSupabaseClient } = require('../lib/supabase-client');
 
 // Constants
 const MAX_REQUEST_SIZE = 10 * 1024 * 1024; // 10MB
@@ -95,7 +98,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
-  const { transcription, salesforceContext } = req.body;
+  const { transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier } = req.body;
 
   // Validate input
   if (!transcription || !salesforceContext) {
@@ -264,6 +267,49 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
     // Validate score is within range
     if (result.score < 1 || result.score > 10) {
       return res.status(500).json({ error: 'Invalid sentiment score returned from API' });
+    }
+
+    // Save sentiment result to database for historical tracking (non-blocking)
+    if (accountId || salesforceAccountId) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          // Resolve account_id if we only have salesforceAccountId
+          let resolvedAccountId = accountId;
+          if (!resolvedAccountId && salesforceAccountId) {
+            const { data: account } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('salesforce_id', salesforceAccountId)
+              .single();
+            resolvedAccountId = account?.id || null;
+          }
+
+          if (resolvedAccountId) {
+            await supabase.from('sentiment_history').insert({
+              account_id: resolvedAccountId,
+              salesforce_account_id: salesforceAccountId || null,
+              user_id: userId || null,
+              score: result.score,
+              summary: result.summary,
+              has_transcription: !!transcription && transcription.length > 0,
+              transcription_length: transcription?.length || 0,
+              cases_count: salesforceContext.total_cases_count || 0,
+              avoma_calls_total: salesforceContext.total_avoma_calls || 0,
+              avoma_calls_ready: salesforceContext.ready_avoma_calls || 0,
+              customer_identifier: customerIdentifier || null,
+              analyzed_at: new Date().toISOString(),
+            });
+
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('Sentiment result saved to history');
+            }
+          }
+        }
+      } catch (dbError) {
+        // Don't fail the request if database save fails - just log it
+        console.error('Error saving sentiment to history:', dbError);
+      }
     }
 
     return res.status(200).json(result);

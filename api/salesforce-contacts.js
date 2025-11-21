@@ -79,6 +79,7 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   // Try with Contact_Status__c first (common custom field name)
   // Also try Status__c as alternative field name
   // Fallback to standard fields if custom field doesn't exist
+  // In SOQL, we need to handle nulls properly - use IS NULL or filter in code
   const customFieldsQuery = `SELECT Id, FirstName, LastName, Name, Email, Title, Phone, MobilePhone, 
                              Contact_Status__c, Status__c, AccountId, Account.Name
                              FROM Contact 
@@ -89,13 +90,26 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   
   try {
     const result = await conn.query(customFieldsQuery);
-    return result.records || [];
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`Query returned ${result.records?.length || 0} contacts for account ${salesforceAccountId}`);
+    }
+    // Filter out any contacts with Unqualified status (in case query didn't filter properly)
+    // Also handle null status - include contacts where status is null or not "Unqualified"
+    const filteredContacts = (result.records || []).filter(contact => {
+      const status = contact.Contact_Status__c || contact.Status__c || null;
+      return status !== 'Unqualified';
+    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`After filtering Unqualified: ${filteredContacts.length} contacts`);
+    }
+    return filteredContacts;
   } catch (error) {
     // If Contact_Status__c doesn't exist, try with standard fields
     if (error.errorCode === 'INVALID_FIELD') {
       console.warn('Contact_Status__c field not found, querying with standard fields only');
       
       // Standard fields query (no Contact Status filter if field doesn't exist)
+      // Return all contacts since we can't filter by status
       const standardFieldsQuery = `SELECT Id, FirstName, LastName, Name, Email, Title, Phone, MobilePhone, 
                                    AccountId, Account.Name
                                    FROM Contact 
@@ -103,10 +117,26 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
                                    ORDER BY LastName, FirstName 
                                    LIMIT 100`;
       
-      const result = await conn.query(standardFieldsQuery);
-      return result.records || [];
+      try {
+        const result = await conn.query(standardFieldsQuery);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Standard fields query returned ${result.records?.length || 0} contacts`);
+        }
+        return result.records || [];
+      } catch (stdError) {
+        console.error('Error querying contacts with standard fields:', stdError);
+        throw stdError;
+      }
     } else {
       console.error('Error querying Salesforce Contacts:', error);
+      // Log more details about the error
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Contact query error details:', {
+          errorCode: error.errorCode,
+          message: error.message,
+          accountId: salesforceAccountId,
+        });
+      }
       throw error;
     }
   }
