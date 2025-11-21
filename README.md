@@ -60,10 +60,12 @@ npm install
 npx vercel link
 ```
 
-5. Run the development server:
+5. Run the development server (run directly, not via npm script):
 ```bash
 npx vercel dev
 ```
+
+**Note:** Don't use `npm run dev` - Vercel CLI will detect it as recursive invocation. Always run `npx vercel dev` directly.
 
 6. Open `http://localhost:3000` in your browser
 

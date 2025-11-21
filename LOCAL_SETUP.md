@@ -31,11 +31,15 @@ Edit `.env.local` and add your credentials:
 
 ## Step 3: Run Development Server
 
+**Important:** Don't use `npm run dev` - run vercel dev directly:
+
 ```bash
-npm run dev
+npx vercel dev
 ```
 
 This will start the server at `http://localhost:3000`
+
+**Why?** Vercel CLI detects if `package.json` has a `dev` script that calls `vercel dev` and treats it as recursive invocation. Running `npx vercel dev` directly avoids this issue.
 
 ## Alternative: Run Without Linking
 
