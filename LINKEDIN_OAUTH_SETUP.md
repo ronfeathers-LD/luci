@@ -145,12 +145,14 @@ curl -X POST https://your-app.vercel.app/api/linkedin-enrich \
 
 The OAuth flow requests these scopes:
 
-- `r_liteprofile` - Basic profile information
-- `r_emailaddress` - Email address
-- `r_organization_social` - Company page data (if available)
-- `w_member_social` - Post on behalf of user (if needed)
+- `openid` - OpenID Connect authentication (required for new API)
+- `profile` - Basic profile information (replaces deprecated `r_liteprofile`)
+- `email` - Email address (replaces deprecated `r_emailaddress`)
 
-**Note:** Some scopes may require additional approval from LinkedIn.
+**Note:** 
+- The old scopes (`r_liteprofile`, `r_emailaddress`) are **deprecated** and will cause `invalid_scope_error`
+- For organization/company data, you may need Marketing Developer Platform (MDP) access
+- Additional scopes like `r_organization_social` and `w_member_social` require special approval
 
 ## Troubleshooting
 
