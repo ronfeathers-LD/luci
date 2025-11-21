@@ -1,9 +1,38 @@
 // Service Worker for offline support
-const CACHE_NAME = 'luci-v1';
+// Version is updated on each build to force cache refresh
+const CACHE_VERSION = 'v2';
+const CACHE_NAME = `luci-${CACHE_VERSION}`;
 const urlsToCache = [
   '/',
   '/index.html',
 ];
+
+// Force update check on service worker activation
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          // Delete all old caches that don't match current version
+          if (cacheName !== CACHE_NAME && cacheName.startsWith('luci-')) {
+            console.log('[SW] Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => {
+      // Force all clients to reload
+      return self.clients.claim().then(() => {
+        // Notify all clients to check for updates
+        return self.clients.matchAll().then(clients => {
+          clients.forEach(client => {
+            client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION });
+          });
+        });
+      });
+    })
+  );
+});
 
 // Install event - cache resources
 self.addEventListener('install', (event) => {
@@ -19,20 +48,11 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-  return self.clients.claim();
+// Listen for messages from clients
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 // Fetch event - serve from cache, fallback to network

@@ -52,6 +52,80 @@
     // Production check
     const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
     
+    // Version checking and cache busting
+    const getBuildVersion = () => {
+      const htmlTag = document.documentElement;
+      return htmlTag.getAttribute('data-build-version') || 
+             document.querySelector('meta[name="build-version"]')?.content || 
+             'unknown';
+    };
+    
+    const getStoredVersion = () => {
+      try {
+        return localStorage.getItem('luci-build-version');
+      } catch (e) {
+        return null;
+      }
+    };
+    
+    const storeVersion = (version) => {
+      try {
+        localStorage.setItem('luci-build-version', version);
+      } catch (e) {
+        // Ignore localStorage errors
+      }
+    };
+    
+    // Check for version updates on load
+    const checkVersionUpdate = () => {
+      const currentVersion = getBuildVersion();
+      const storedVersion = getStoredVersion();
+      
+      if (storedVersion && storedVersion !== currentVersion && currentVersion !== 'unknown') {
+        log('New version detected:', currentVersion, 'Previous:', storedVersion);
+        // Clear all caches and reload
+        if ('caches' in window) {
+          caches.keys().then(cacheNames => {
+            return Promise.all(
+              cacheNames.map(cacheName => caches.delete(cacheName))
+            );
+          }).then(() => {
+            // Unregister service worker if it exists
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(registrations => {
+                registrations.forEach(registration => registration.unregister());
+              }).then(() => {
+                // Clear localStorage and reload
+                localStorage.clear();
+                storeVersion(currentVersion);
+                window.location.reload(true);
+              });
+            } else {
+              localStorage.clear();
+              storeVersion(currentVersion);
+              window.location.reload(true);
+            }
+          });
+        } else {
+          localStorage.clear();
+          storeVersion(currentVersion);
+          window.location.reload(true);
+        }
+        return true; // Version changed, reloading
+      } else if (!storedVersion) {
+        // First time visit, store current version
+        storeVersion(currentVersion);
+      }
+      return false; // No version change
+    };
+    
+    // Run version check immediately
+    if (checkVersionUpdate()) {
+      // If version changed, we're reloading - don't continue
+      // This return won't execute, but it's here for clarity
+      return;
+    }
+    
     // Helper function to format currency as US dollars
     const formatCurrency = (value) => {
       if (!value || value === 'N/A' || value === null || value === undefined) {
@@ -2692,6 +2766,28 @@
         navigator.serviceWorker.register('/sw.js')
           .then((registration) => {
             log('Service Worker registered:', registration.scope);
+            
+            // Check for service worker updates
+            registration.addEventListener('updatefound', () => {
+              const newWorker = registration.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    // New service worker available, reload to use it
+                    log('New service worker available, reloading...');
+                    window.location.reload();
+                  }
+                });
+              }
+            });
+            
+            // Listen for messages from service worker
+            navigator.serviceWorker.addEventListener('message', (event) => {
+              if (event.data && event.data.type === 'SW_UPDATED') {
+                log('Service worker updated, reloading...');
+                window.location.reload();
+              }
+            });
           })
           .catch((error) => {
             logError('Service Worker registration failed:', error);
