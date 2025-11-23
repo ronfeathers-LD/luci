@@ -1,6 +1,6 @@
 // Service Worker for offline support
 // Version is updated on each build to force cache refresh
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `luci-${CACHE_VERSION}`;
 const urlsToCache = [
   '/',

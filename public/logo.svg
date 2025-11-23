@@ -1,7 +1,0 @@
-<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- L - Vertical bar on left, horizontal bar extending right -->
-  <rect x="8" y="8" width="8" height="32" rx="2" fill="#26D07C"/>
-  <rect x="8" y="32" width="16" height="8" rx="2" fill="#26D07C"/>
-  <!-- D - Connected to L, rounded on right side -->
-  <path d="M16 8H28C32.4183 8 36 11.5817 36 16V32C36 36.4183 32.4183 40 28 40H16V8Z" fill="#26D07C"/>
-</svg>

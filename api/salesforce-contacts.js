@@ -58,6 +58,8 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   
   if (contactCount === 0) {
     log(`Account ${salesforceAccountId} has no contacts in Salesforce. This is normal - not all accounts have contacts.`);
+  } else if (filteredContacts.length === 0 && contactCount > 0) {
+    log(`Warning: All ${contactCount} contacts for account ${salesforceAccountId} were filtered out (likely all have Contact_Status__c = 'Unqualified')`);
   }
   
   return filteredContacts;
@@ -159,6 +161,8 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       assistant_phone: sfdcContact.AssistantPhone || null,
       description: sfdcContact.Description || null,
       // Account Context (denormalized)
+      // Note: These fields may not exist if migration 011 hasn't been applied
+      // We'll include them in the first attempt and fall back to core fields if there's an error
       account_industry: sfdcContact.Account?.Industry || null,
       account_annual_revenue: sfdcContact.Account?.AnnualRevenue || null,
       account_number_of_employees: sfdcContact.Account?.NumberOfEmployees || null,
@@ -168,7 +172,8 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       last_synced_at: new Date().toISOString(),
     };
 
-    const { data: contactRecord, error: contactError } = await supabase
+    // Try to upsert with all fields first
+    let { data: contactRecord, error: contactError } = await supabase
       .from('contacts')
       .upsert(contactData, {
         onConflict: 'salesforce_id',
@@ -176,6 +181,42 @@ async function syncContactsToSupabase(supabase, sfdcContacts, salesforceAccountI
       })
       .select()
       .single();
+
+    // If error is about missing columns, try again with only core fields
+    if (contactError && contactError.code === 'PGRST204') {
+      logWarn(`Missing column detected for contact ${sfdcContact.Id}, retrying with core fields only:`, contactError.message);
+      
+      // Retry with only core fields that definitely exist (from base migration 006)
+      // Exclude fields that may not exist if migrations 009 or 011 haven't been applied
+      const coreContactData = {
+        salesforce_id: sfdcContact.Id,
+        salesforce_account_id: salesforceAccountId,
+        account_id: accountId || null,
+        first_name: sfdcContact.FirstName || null,
+        last_name: sfdcContact.LastName || null,
+        name: sfdcContact.Name || null,
+        email: sfdcContact.Email || null,
+        title: sfdcContact.Title || null,
+        phone: sfdcContact.Phone || null,
+        mobile_phone: sfdcContact.MobilePhone || null,
+        contact_status: contactStatus,
+        account_name: sfdcContact.Account?.Name || null,
+        // linkedin_url excluded here - may not exist if migration 009 hasn't been applied
+        last_synced_at: new Date().toISOString(),
+      };
+
+      const retryResult = await supabase
+        .from('contacts')
+        .upsert(coreContactData, {
+          onConflict: 'salesforce_id',
+          ignoreDuplicates: false,
+        })
+        .select()
+        .single();
+
+      contactRecord = retryResult.data;
+      contactError = retryResult.error;
+    }
 
     if (contactError) {
       logError(`Error syncing contact ${sfdcContact.Id}:`, contactError);

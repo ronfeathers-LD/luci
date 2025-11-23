@@ -62,12 +62,13 @@ module.exports = async function handler(req, res) {
   }
   
   try {
-    // Create a promise with timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Request timeout')), REQUEST_TIMEOUT);
-    });
+    // Default model name (used if discovery fails)
+    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    log(`Starting with default model: ${modelName} with API key prefix: ${apiKey ? apiKey.substring(0, 10) + '...' : 'missing'}`);
     
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    // Use a longer timeout for Gemini API calls (60 seconds)
+    // This accounts for model discovery time + API response time
+    const GEMINI_API_TIMEOUT = 60000; // 60 seconds
     
     const requestBody = {
       contents: [{
@@ -95,6 +96,17 @@ Provide a comprehensive sentiment analysis considering:
    - Case descriptions (customer feedback and issue details)
    - Case types and reasons (patterns in support needs)
    - Resolution timelines (closed dates vs created dates)
+   - **CRITICAL: Contact Level Involvement in Cases**:
+     ${salesforceContext.contact_levels ? `
+     * C-Level contacts involved in cases: ${salesforceContext.contact_levels.c_level_in_cases || 0} (${salesforceContext.contact_levels.c_level_count || 0} total C-Level contacts)
+       - ⚠️ This is a MAJOR RED FLAG - C-Level executives submitting support cases indicates serious issues
+       - C-Level involvement suggests problems have escalated to the highest levels
+     * Sr. Level contacts involved in cases: ${salesforceContext.contact_levels.sr_level_in_cases || 0} (${salesforceContext.contact_levels.sr_level_count || 0} total Sr. Level contacts)
+       - ⚠️ This is a SIGNIFICANT CONCERN - Senior leadership involvement indicates problems are not being resolved
+       - Sr. Level (VP, Director, etc.) involvement suggests frustration and escalation
+     * Other contacts involved in cases: ${salesforceContext.contact_levels.other_in_cases || 0} (${salesforceContext.contact_levels.other_count || 0} total other contacts)
+     ` : 'Contact level data not available'}
+     - **Weight case involvement by contact level heavily** - C-Level or Sr. Level on cases is a strong negative signal
 
 3. **Account Profile**:
    - Account tier: ${salesforceContext.account_tier || 'Unknown'}
@@ -107,7 +119,15 @@ Provide a comprehensive sentiment analysis considering:
    - Ready transcripts: ${salesforceContext.ready_avoma_calls || 0}
 
 5. **Contact Intelligence & Professional Context**${salesforceContext.linkedin_data ? `:
-   - Total contacts: ${salesforceContext.linkedin_data.total_contacts_with_linkedin || 0}
+   - Total contacts: ${salesforceContext.linkedin_data.total_contacts || 0}
+   - Contact breakdown by level:
+     * C-Level: ${salesforceContext.linkedin_data.contact_level_counts?.['C-Level'] || 0} contacts
+     * Sr. Level: ${salesforceContext.linkedin_data.contact_level_counts?.['Sr. Level'] || 0} contacts
+     * Other: ${salesforceContext.linkedin_data.contact_level_counts?.['Other'] || 0} contacts
+   - Contacts involved in support cases by level:
+     * C-Level: ${salesforceContext.linkedin_data.case_involved_by_level?.['C-Level'] || 0} (${salesforceContext.linkedin_data.case_involved_by_level?.['C-Level'] > 0 ? '⚠️ MAJOR CONCERN' : 'Good'})
+     * Sr. Level: ${salesforceContext.linkedin_data.case_involved_by_level?.['Sr. Level'] || 0} (${salesforceContext.linkedin_data.case_involved_by_level?.['Sr. Level'] > 0 ? '⚠️ SIGNIFICANT CONCERN' : 'Good'})
+     * Other: ${salesforceContext.linkedin_data.case_involved_by_level?.['Other'] || 0}
    - Enriched profile data available: ${salesforceContext.linkedin_data.contacts_with_enriched_data || 0}
    - Key contact insights:
 ${salesforceContext.linkedin_data.contacts.map(c => {
@@ -143,11 +163,25 @@ ${salesforceContext.linkedin_data.contacts.map(c => {
    - Key risk factors or positive indicators
    - Recommended actions or areas of concern
 
-Provide a sentiment score (1-10) and a detailed summary that explains:
-- What factors most influenced the score
-- Specific concerns or positive signals identified
-- Relationship trajectory (improving, declining, stable)
-- Actionable insights for account management`
+Provide TWO analyses:
+
+1. **Executive Summary** (150 words max): A concise, high-level overview suitable for C-level executives. Focus on:
+   - Overall sentiment score and key takeaway
+   - Top 2-3 critical factors
+   - Immediate action required (if any)
+   - Relationship health status
+
+2. **Comprehensive Analysis** (500-800 words): A detailed, in-depth analysis for CSMs and Account Managers. Include:
+   - Detailed breakdown of all factors influencing the score
+   - Specific concerns or positive signals with examples
+   - Relationship trajectory analysis (improving, declining, stable) with evidence
+   - Contact level involvement analysis (C-Level/Sr. Level in cases is a major red flag)
+   - Support case patterns and implications
+   - Engagement metrics and their meaning
+   - Risk factors and opportunities
+   - Detailed actionable recommendations
+   - Account-specific context and nuances
+   - Comparison to account tier expectations`
         }]
       }],
       systemInstruction: {
@@ -176,10 +210,14 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
             },
             summary: {
               type: "string",
-              description: "A comprehensive summary of the sentiment analysis, including key factors influencing the score, specific concerns or positive signals, relationship trajectory, and actionable insights. Maximum 150 words to allow for detailed analysis."
+              description: "Executive summary (150 words max) - concise, high-level overview for C-level executives. Focus on overall sentiment, top 2-3 critical factors, immediate actions, and relationship health status."
+            },
+            comprehensiveAnalysis: {
+              type: "string",
+              description: "Comprehensive analysis (500-800 words) - detailed, in-depth analysis for CSMs and Account Managers. Include detailed factor breakdown, specific concerns/positive signals with examples, relationship trajectory with evidence, contact level involvement analysis, support case patterns, engagement metrics, risk factors, opportunities, detailed recommendations, account-specific context, and comparison to account tier expectations."
             }
           },
-          required: ["score", "summary"]
+          required: ["score", "summary", "comprehensiveAnalysis"]
         },
         temperature: 0.7,
         topP: 0.8,
@@ -202,7 +240,46 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
           }
           
           if (!response.ok) {
-            throw new Error(`API error: ${response.status} ${response.statusText}`);
+            // Get error details from response body for better diagnostics
+            let errorDetails = '';
+            try {
+              const errorData = await response.clone().json();
+              errorDetails = errorData.error ? JSON.stringify(errorData.error) : '';
+            } catch (e) {
+              // If we can't parse JSON, get text
+              try {
+                errorDetails = await response.clone().text();
+              } catch (e2) {
+                // Ignore if we can't get error details
+              }
+            }
+            
+            const errorMessage = errorDetails 
+              ? `API error: ${response.status} ${response.statusText} - ${errorDetails}`
+              : `API error: ${response.status} ${response.statusText}`;
+            
+            // Log specific errors for 403 (Forbidden) and 404 (Not Found)
+            if (response.status === 403) {
+              logError('Gemini API 403 Forbidden - Possible causes:', {
+                status: response.status,
+                statusText: response.statusText,
+                errorDetails: errorDetails,
+                model: modelName,
+                apiKeyPresent: !!apiKey,
+                apiKeyLength: apiKey ? apiKey.length : 0,
+                apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing',
+              });
+            } else if (response.status === 404) {
+              logError('Gemini API 404 Not Found - Model not available:', {
+                status: response.status,
+                statusText: response.statusText,
+                errorDetails: errorDetails,
+                model: modelName,
+                suggestion: 'Try using gemini-pro, gemini-1.5-pro-latest, or gemini-flash-latest',
+              });
+            }
+            
+            throw new Error(errorMessage);
           }
           
           return response;
@@ -216,18 +293,221 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
       }
     };
 
-    // Race between the fetch and timeout
-    const fetchPromise = retryFetch(async () => {
-      return fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      });
-    });
+    // Dynamically discover available models by querying ListModels API
+    // This is more reliable than hardcoding model names
+    async function discoverAvailableModels(apiVersion) {
+      try {
+        const listUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models?key=${apiKey}`;
+        log(`Querying ListModels API for ${apiVersion} to discover available models...`);
+        
+        const response = await fetch(listUrl, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+          log(`ListModels API returned ${response.status} ${response.statusText} for ${apiVersion}`);
+          return [];
+        }
+        
+        const data = await response.json();
+        const models = data.models || [];
+        log(`ListModels API returned ${models.length} total models for ${apiVersion}`);
+        
+        // Filter for models that support generateContent method
+        const supportedModels = models
+          .filter(model => {
+            const methods = model.supportedGenerationMethods || [];
+            return methods.includes('generateContent');
+          })
+          .map(model => ({
+            name: model.name.replace('models/', ''),
+            displayName: model.displayName,
+            version: apiVersion
+          }));
+        
+        log(`Found ${supportedModels.length} models supporting generateContent in ${apiVersion}: ${supportedModels.map(m => m.name).join(', ')}`);
+        return supportedModels;
+      } catch (error) {
+        logError(`Error discovering models for ${apiVersion}:`, error);
+        return [];
+      }
+    }
     
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
+    // Discover available models - try v1 first (more stable), then v1beta
+    // Note: v1beta may have restricted access even if v1 works
+    let discoveredModels = [];
+    for (const version of ['v1', 'v1beta']) {
+      const models = await discoverAvailableModels(version);
+      if (models.length > 0) {
+        log(`Discovered ${models.length} available models in ${version} API`);
+        discoveredModels = models;
+        break;
+      }
+    }
+    
+    // If no models discovered, use fallback list
+    let modelsToTry = [];
+    if (discoveredModels.length > 0) {
+      // Sort models: prefer pro over flash, prefer shorter names (more stable)
+      const sortedModels = discoveredModels.sort((a, b) => {
+        const aIsPro = a.name.includes('pro');
+        const bIsPro = b.name.includes('pro');
+        if (aIsPro !== bIsPro) return bIsPro ? 1 : -1;
+        return a.name.length - b.name.length;
+      }).slice(0, 5); // Use top 5 models
+      
+      // Convert to format expected by loop: { model, version }
+      modelsToTry = sortedModels.map(m => ({ model: m.name, version: m.version }));
+      log(`Will try models in order: ${modelsToTry.map(m => `${m.model} (${m.version})`).join(', ')}`);
+    } else {
+      log('Could not discover models via API, using fallback list');
+      modelsToTry = [
+        { model: modelName, version: 'v1beta' },
+        { model: 'gemini-1.5-flash', version: 'v1beta' },
+        { model: 'gemini-pro', version: 'v1' },
+      ];
+    }
+    
+    let response = null;
+    let lastError = null;
+    let lastAttemptedModel = null;
+    
+    for (const { model: tryModel, version: apiVersion } of modelsToTry) {
+      lastAttemptedModel = `${tryModel} (${apiVersion})`;
+      try {
+        const tryUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${tryModel}:generateContent?key=${apiKey}`;
+        log(`Attempting Gemini model: ${tryModel} with API version: ${apiVersion}`);
+        
+        // Create API-version-specific request body
+        // v1 API doesn't support systemInstruction or responseMimeType/responseSchema
+        let apiRequestBody = requestBody;
+        if (apiVersion === 'v1') {
+          // For v1 API, include system instruction in the prompt and remove v1beta-only fields
+          const systemInstructionText = requestBody.systemInstruction.parts[0].text;
+          apiRequestBody = {
+            contents: [{
+              parts: [{
+                text: `${systemInstructionText}\n\n${requestBody.contents[0].parts[0].text}\n\nIMPORTANT: You must respond with RAW JSON only (no markdown, no code blocks, no backticks). Start your response with { and end with }. Format your response EXACTLY as: {"score": <number 1-10>, "summary": "<text>", "comprehensiveAnalysis": "<text>"}`
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              topP: 0.8,
+              topK: 40
+            }
+          };
+        }
+        
+        // Create a timeout-aware fetch function that times out per attempt
+        const fetchWithTimeout = async () => {
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`Request timeout for model ${tryModel}`)), GEMINI_API_TIMEOUT);
+          });
+          
+          const fetchPromise = fetch(tryUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(apiRequestBody)
+          });
+          
+          return Promise.race([fetchPromise, timeoutPromise]);
+        };
+        
+        // Use retryFetch with timeout-aware fetch function
+        response = await retryFetch(fetchWithTimeout);
+        
+        // If we got a response and it's not 404, break out of the loop
+        if (response && response.status !== 404) {
+          log(`Successfully using Gemini model: ${tryModel} (${apiVersion})`);
+          lastAttemptedModel = `${tryModel} (${apiVersion})`; // Track successful model
+          break;
+        }
+        
+        // If 404 or 400 (invalid request), try next model
+        if (response && (response.status === 404 || response.status === 400)) {
+          if (response.status === 404) {
+            log(`Model ${tryModel} (${apiVersion}) not found (404), trying next model...`);
+          } else {
+            log(`Model ${tryModel} (${apiVersion}) returned 400 (invalid request), trying next model...`);
+          }
+          continue;
+        }
+      } catch (error) {
+        lastError = error;
+        // If it's a 404 or 400, try next model
+        if (error.message && (error.message.includes('404') || error.message.includes('400'))) {
+          const errorType = error.message.includes('404') ? '404' : '400';
+          log(`Model ${tryModel} (${apiVersion}) failed with ${errorType}, trying next model...`);
+          continue;
+        }
+        // For other errors, break and throw
+        throw error;
+      }
+    }
+    
+    // If we still don't have a response, throw the last error with helpful message
+    if (!response) {
+      const errorMessage = lastError?.message || 'All Gemini models failed.';
+      throw new Error(`${errorMessage}
+
+Unable to find a working Gemini model. Please check:
+1. Your GEMINI_API_KEY is valid and has access to Gemini models
+2. The API key has the necessary permissions
+3. Your Google Cloud project has the Generative Language API enabled
+4. Try setting GEMINI_MODEL environment variable to a specific model name
+
+To see available models, call: https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY
+
+Last attempted models: ${modelsToTry.map(m => `${m.model} (${m.version})`).join(', ')}`);
+    }
+
+    // Check if response is ok before trying to parse JSON
+    if (!response.ok) {
+      let errorDetails = '';
+      try {
+        const errorData = await response.json();
+        errorDetails = errorData.error ? JSON.stringify(errorData.error) : JSON.stringify(errorData);
+      } catch (e) {
+        try {
+          errorDetails = await response.text();
+        } catch (e2) {
+          errorDetails = `Status: ${response.status} ${response.statusText}`;
+        }
+      }
+      
+      logError('Gemini API request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorDetails: errorDetails,
+        model: lastAttemptedModel || modelName,
+      });
+      
+      if (response.status === 403) {
+        return sendErrorResponse(res, new Error(`Gemini API access forbidden (403). Please check:
+1. Your GEMINI_API_KEY is valid and has access to Gemini models
+2. The API key has the necessary permissions
+3. Your Google Cloud project has the Generative Language API enabled
+4. The API key is not restricted to specific APIs
+
+Error details: ${errorDetails}`), 403, isProduction());
+      } else if (response.status === 404) {
+        return sendErrorResponse(res, new Error(`Gemini API model not found (404). The model '${modelName}' is not available.
+        
+Please try one of these models by setting GEMINI_MODEL environment variable:
+- gemini-pro (most stable, recommended)
+- gemini-1.5-pro-latest
+- gemini-flash-latest
+
+To see available models, visit: https://ai.google.dev/api/rest?version=v1beta#rest/rest/v1beta/models/list
+
+Error details: ${errorDetails}`), 404, isProduction());
+      }
+      
+      return sendErrorResponse(res, new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorDetails}`), response.status, isProduction());
+    }
 
     const data = await response.json();
     
@@ -241,11 +521,43 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
     }
 
     const content = data.candidates[0].content.parts[0].text;
-    const result = JSON.parse(content);
+    
+    // Clean up the content: strip markdown code blocks if present
+    let cleanedContent = content.trim();
+    
+    // Remove markdown code blocks (```json ... ``` or ``` ... ```)
+    cleanedContent = cleanedContent.replace(/^```(?:json)?\s*\n?/i, ''); // Remove opening ```json or ```
+    cleanedContent = cleanedContent.replace(/\n?```\s*$/i, ''); // Remove closing ```
+    cleanedContent = cleanedContent.trim();
+    
+    // Try to extract JSON if there's extra text around it
+    // Look for JSON object boundaries { ... }
+    const jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanedContent = jsonMatch[0];
+    }
+    
+    let result;
+    try {
+      result = JSON.parse(cleanedContent);
+    } catch (parseError) {
+      logError('Failed to parse Gemini response as JSON:', {
+        originalContent: content.substring(0, 500), // Log first 500 chars for debugging
+        cleanedContent: cleanedContent.substring(0, 500),
+        parseError: parseError.message
+      });
+      throw new Error(`Failed to parse Gemini response as JSON: ${parseError.message}. Response may not be in expected format.`);
+    }
     
     // Validate score is within range
     if (result.score < 1 || result.score > 10) {
       return sendErrorResponse(res, new Error('Invalid sentiment score returned from API'), 500, isProduction());
+    }
+    
+    // Ensure comprehensiveAnalysis exists (for backward compatibility)
+    if (!result.comprehensiveAnalysis) {
+      // If not provided, use summary as fallback
+      result.comprehensiveAnalysis = result.summary || 'Comprehensive analysis not available.';
     }
 
     // Save sentiment result to database for historical tracking (non-blocking)
@@ -271,6 +583,7 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
               user_id: userId || null,
               score: result.score,
               summary: result.summary,
+              comprehensive_analysis: result.comprehensiveAnalysis || null,
               has_transcription: !!transcription && transcription.length > 0,
               transcription_length: transcription?.length || 0,
               cases_count: salesforceContext.total_cases_count || 0,
@@ -293,9 +606,9 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
   } catch (error) {
     logError('Error in analyze-sentiment function:', error);
     
-    // Handle timeout specifically
-    if (error.message === 'Request timeout') {
-      return sendErrorResponse(res, new Error('Request timeout'), 504, isProduction());
+    // Handle timeout specifically (check for timeout in error message)
+    if (error.message && error.message.includes('Request timeout')) {
+      return sendErrorResponse(res, new Error('Request timeout - The Gemini API request took too long. Please try again.'), 504, isProduction());
     }
     
     return sendErrorResponse(res, error, 500, isProduction());

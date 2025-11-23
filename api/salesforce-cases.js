@@ -50,18 +50,103 @@ async function querySalesforceCases(conn, salesforceAccountId) {
   const escapedAccountId = escapeSOQL(salesforceAccountId);
   
   // Query recent cases for the account
-  const caseQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description 
+  // Include ContactEmail and ContactId to track who submitted/copied on cases
+  // Note: Contact.Name might be null if Contact is not set, so we handle that gracefully
+  const caseQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description, 
+                     ContactEmail, ContactId, Contact.Name
                      FROM Case 
                      WHERE AccountId = '${escapedAccountId}' 
                      ORDER BY CreatedDate DESC 
                      LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
   
   try {
+    log(`Querying Salesforce for cases with AccountId: ${salesforceAccountId}`);
     const result = await conn.query(caseQuery);
+    const caseCount = result.records?.length || 0;
+    log(`Salesforce query returned ${caseCount} cases for account ${salesforceAccountId}`);
+    
+    if (caseCount === 0) {
+      // Log a warning if no cases found - this might be expected or might indicate an issue
+      log(`No cases found for account ${salesforceAccountId}. This could be normal if the account has no support cases.`);
+      
+      // Try a simpler query without Contact.Name to see if that's the issue
+      const simpleQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description, 
+                           ContactEmail, ContactId
+                           FROM Case 
+                           WHERE AccountId = '${escapedAccountId}' 
+                           ORDER BY CreatedDate DESC 
+                           LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
+      
+      try {
+        log(`Retrying with simpler query (without Contact.Name) for account ${salesforceAccountId}`);
+        const simpleResult = await conn.query(simpleQuery);
+        const simpleCount = simpleResult.records?.length || 0;
+        if (simpleCount > 0) {
+          log(`⚠️ Simpler query returned ${simpleCount} cases - Contact.Name field may be causing issues`);
+          // Enrich records with Contact.Name if available
+          for (const record of simpleResult.records) {
+            if (record.ContactId) {
+              try {
+                const contact = await conn.sobject('Contact').retrieve(record.ContactId, ['Name']);
+                record.Contact = { Name: contact.Name };
+              } catch (contactError) {
+                logError(`Could not fetch Contact.Name for ContactId ${record.ContactId}:`, contactError);
+                record.Contact = null;
+              }
+            }
+          }
+          return simpleResult.records || [];
+        }
+      } catch (simpleError) {
+        logError('Simple query also failed:', simpleError);
+        // Continue with original error
+      }
+    }
+    
     return result.records || [];
   } catch (error) {
     logError('Error querying Salesforce Cases:', error);
-    throw error;
+    logError('Query that failed:', caseQuery);
+    logError('Account ID used:', salesforceAccountId);
+    logError('Error details:', {
+      message: error.message,
+      errorCode: error.errorCode,
+      fields: error.fields,
+    });
+    
+    // Try fallback query without Contact.Name
+    try {
+      log(`Attempting fallback query without Contact.Name for account ${salesforceAccountId}`);
+      const fallbackQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description, 
+                              ContactEmail, ContactId
+                              FROM Case 
+                              WHERE AccountId = '${escapedAccountId}' 
+                              ORDER BY CreatedDate DESC 
+                              LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
+      
+      const fallbackResult = await conn.query(fallbackQuery);
+      log(`Fallback query returned ${fallbackResult.records?.length || 0} cases`);
+      
+      // Try to enrich with Contact.Name if ContactId exists
+      if (fallbackResult.records && fallbackResult.records.length > 0) {
+        for (const record of fallbackResult.records) {
+          if (record.ContactId) {
+            try {
+              const contact = await conn.sobject('Contact').retrieve(record.ContactId, ['Name']);
+              record.Contact = { Name: contact.Name };
+            } catch (contactError) {
+              logError(`Could not fetch Contact.Name for ContactId ${record.ContactId}:`, contactError);
+              record.Contact = null;
+            }
+          }
+        }
+      }
+      
+      return fallbackResult.records || [];
+    } catch (fallbackError) {
+      logError('Fallback query also failed:', fallbackError);
+      throw error; // Throw original error
+    }
   }
 }
 
@@ -76,6 +161,7 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
   const syncedCases = [];
 
   for (const sfdcCase of sfdcCases) {
+    // Build case data with all fields
     const caseData = {
       salesforce_id: sfdcCase.Id,
       salesforce_account_id: salesforceAccountId,
@@ -93,6 +179,18 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
       last_synced_at: new Date().toISOString(),
     };
 
+    // Add contact fields if they exist in the schema (for backward compatibility)
+    // These fields were added in migration 013
+    if (sfdcCase.ContactEmail !== undefined) {
+      caseData.contact_email = sfdcCase.ContactEmail || null;
+    }
+    if (sfdcCase.ContactId !== undefined) {
+      caseData.contact_id = sfdcCase.ContactId || null;
+    }
+    if (sfdcCase.Contact?.Name !== undefined) {
+      caseData.contact_name = sfdcCase.Contact?.Name || null;
+    }
+
     const { data: caseRecord, error: caseError } = await supabase
       .from('cases')
       .upsert(caseData, {
@@ -103,11 +201,41 @@ async function syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, acc
       .single();
 
     if (caseError) {
-      logError(`Error syncing case ${sfdcCase.Id}:`, caseError);
-      continue;
+      // If error is about missing columns, try without contact fields
+      if (caseError.code === 'PGRST204' && (
+        caseError.message?.includes('contact_email') ||
+        caseError.message?.includes('contact_id') ||
+        caseError.message?.includes('contact_name')
+      )) {
+        logError(`Contact columns not found in cases table. Please run migration 013_add_case_contact_fields.sql. Retrying without contact fields for case ${sfdcCase.Id}`);
+        
+        // Remove contact fields and retry
+        delete caseData.contact_email;
+        delete caseData.contact_id;
+        delete caseData.contact_name;
+        
+        const { data: retryRecord, error: retryError } = await supabase
+          .from('cases')
+          .upsert(caseData, {
+            onConflict: 'salesforce_id',
+            ignoreDuplicates: false,
+          })
+          .select()
+          .single();
+        
+        if (retryError) {
+          logError(`Error syncing case ${sfdcCase.Id} (retry without contact fields):`, retryError);
+          continue;
+        }
+        
+        syncedCases.push(retryRecord);
+      } else {
+        logError(`Error syncing case ${sfdcCase.Id}:`, caseError);
+        continue;
+      }
+    } else {
+      syncedCases.push(caseRecord);
     }
-
-    syncedCases.push(caseRecord);
   }
 
   return syncedCases;
@@ -166,6 +294,9 @@ module.exports = async function handler(req, res) {
             createdDate: c.created_date,
             closedDate: c.closed_date,
             description: c.description,
+            contactEmail: c.contact_email,
+            contactId: c.contact_id,
+            contactName: c.contact_name,
           })),
           total: cached.cases.length,
           cached: true,
@@ -182,7 +313,9 @@ module.exports = async function handler(req, res) {
     }
 
     const sfdcAuth = await authenticateSalesforce(supabase);
+    log(`Authenticated with Salesforce, querying cases for account: ${salesforceAccountId}`);
     const sfdcCases = await querySalesforceCases(sfdcAuth.connection, salesforceAccountId);
+    log(`Retrieved ${sfdcCases.length} cases from Salesforce for account: ${salesforceAccountId}`);
 
     // Always look up account UUID from Supabase using salesforce_account_id
     // The accountId parameter might be a Salesforce ID string, not a UUID
@@ -211,8 +344,18 @@ module.exports = async function handler(req, res) {
       accountUuid = account?.id || null;
     }
 
+    // Log if no cases were returned from Salesforce
+    if (sfdcCases.length === 0) {
+      log(`⚠️ No cases returned from Salesforce for account ${salesforceAccountId}. This could mean:
+        - The account has no support cases (normal)
+        - The query failed silently (check Salesforce logs)
+        - There's a permission issue accessing Case records
+        - The AccountId might be incorrect`);
+    }
+
     // Sync cases to Supabase cache
     const syncedCases = await syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, accountUuid);
+    log(`Synced ${syncedCases.length} cases to Supabase cache for account: ${salesforceAccountId}`);
 
     const cases = syncedCases.map(c => ({
       id: c.salesforce_id,
@@ -226,6 +369,9 @@ module.exports = async function handler(req, res) {
       createdDate: c.created_date,
       closedDate: c.closed_date,
       description: c.description,
+      contactEmail: c.contact_email,
+      contactId: c.contact_id,
+      contactName: c.contact_name,
     }));
 
     return sendSuccessResponse(res, {
@@ -258,6 +404,9 @@ module.exports = async function handler(req, res) {
             createdDate: c.created_date,
             closedDate: c.closed_date,
             description: c.description,
+            contactEmail: c.contact_email,
+            contactId: c.contact_id,
+            contactName: c.contact_name,
           })),
           total: staleCache.cases.length,
           cached: true,

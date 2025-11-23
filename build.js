@@ -23,12 +23,29 @@ try {
   const buildTimestamp = Date.now();
   const buildVersion = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || buildTimestamp.toString(36);
 
-  // Replace the Tailwind CDN script with inline CSS
-  let updatedHtml = htmlContent
-    .replace(
+  // Replace the Tailwind CDN script with inline CSS, or replace existing style tag
+  let updatedHtml = htmlContent;
+  
+  // First, try to replace existing style tag (if it contains Tailwind CSS)
+  if (htmlContent.includes('<style>') && htmlContent.includes('tailwindcss')) {
+    // Replace the first style tag that contains tailwindcss
+    updatedHtml = updatedHtml.replace(
+      /<style>[\s\S]*?tailwindcss[\s\S]*?<\/style>/,
+      `<style>${cssContent}</style>`
+    );
+  } else if (htmlContent.includes('<script src="https://cdn.tailwindcss.com"></script>')) {
+    // Replace the Tailwind CDN script with inline CSS
+    updatedHtml = updatedHtml.replace(
       '<script src="https://cdn.tailwindcss.com"></script>',
       `<style>${cssContent}</style>`
     );
+  } else {
+    // If neither exists, inject before closing </head>
+    updatedHtml = updatedHtml.replace(
+      '</head>',
+      `<style>${cssContent}</style>\n  </head>`
+    );
+  }
 
   // Inject build version and timestamp into HTML
   // Add version meta tag if it doesn't exist, or update it
