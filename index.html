@@ -583,6 +583,185 @@
       const [avomaWarning, setAvomaWarning] = useState(null); // Warning message for missing Avoma data
       const maxRetries = 3;
       
+      // HelpPage component - reusable help content (defined early for use throughout component)
+      const HelpPage = ({ onClose }) => {
+        return (
+          <div className="bg-lean-white rounded-lg shadow-lg p-8 mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="typography-heading text-lean-black">How Sentiment Analysis Works</h2>
+              <button
+                onClick={onClose}
+                className="text-lean-black-60 hover:text-lean-black"
+                aria-label="Close help"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="prose max-w-none space-y-6">
+              <section>
+                <h3 className="typography-heading text-lean-black mb-3">Overview</h3>
+                <p className="typography-body text-lean-black-80">
+                  L.U.C.I. uses Google Gemini AI to analyze customer sentiment by combining conversation transcripts from Avoma meetings with comprehensive Salesforce account context. The analysis provides a score from 1-10 and detailed insights about the customer relationship.
+                </p>
+              </section>
+
+              <section>
+                <h3 className="typography-heading text-lean-black mb-3">Data Sources Analyzed</h3>
+                <div className="space-y-4">
+                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
+                    <h4 className="font-semibold text-lean-black mb-2">1. Avoma Conversation Transcripts</h4>
+                    <p className="text-lean-black-80 text-sm">
+                      The AI analyzes the actual conversation between your team and the customer, looking for:
+                    </p>
+                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
+                      <li>Tone and emotional indicators (frustration, satisfaction, urgency)</li>
+                      <li>Language patterns and sentiment signals</li>
+                      <li>Initial concerns and how they were addressed</li>
+                      <li>Resolution quality and final satisfaction level</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
+                    <h4 className="font-semibold text-lean-black mb-2">2. Salesforce Support Cases</h4>
+                    <p className="text-lean-black-80 text-sm">
+                      Recent support cases provide critical context:
+                    </p>
+                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
+                      <li><strong>Case Count:</strong> Number of recent cases (more cases may indicate issues)</li>
+                      <li><strong>Case Descriptions:</strong> Customer feedback and issue details</li>
+                      <li><strong>Priority & Status:</strong> High priority or unresolved cases signal risk</li>
+                      <li><strong>Case Types & Reasons:</strong> Patterns in support needs</li>
+                      <li><strong>Resolution Timelines:</strong> How quickly issues are resolved</li>
+                      <li><strong>⚠️ Contact Level Involvement:</strong> <strong>CRITICAL INDICATOR</strong> - C-Level or Sr. Level executives submitting support cases is a major red flag indicating serious escalation</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-lean-almost-white rounded-lg p-4 border-l-4 border-lean-black/20">
+                    <h4 className="font-semibold text-lean-black mb-2">3. Account Profile Context</h4>
+                    <p className="text-lean-black-80 text-sm">
+                      Account characteristics help set appropriate expectations:
+                    </p>
+                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
+                      <li><strong>Account Tier:</strong> Higher tier accounts may have different expectations</li>
+                      <li><strong>Contract Value:</strong> Expiring ARR indicates renewal risk</li>
+                      <li><strong>Industry:</strong> Industry norms and standards</li>
+                      <li><strong>Account Manager:</strong> Relationship context</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-lean-almost-white rounded-lg p-4 border-l-4 border-lean-green">
+                    <h4 className="font-semibold text-lean-black mb-2">4. Engagement Metrics</h4>
+                    <p className="text-lean-black-80 text-sm">
+                      Meeting participation and frequency:
+                    </p>
+                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
+                      <li>Total Avoma calls/meetings with the customer</li>
+                      <li>Number of meetings with ready transcripts</li>
+                      <li>Engagement frequency and participation</li>
+                    </ul>
+                  </div>
+
+                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
+                    <h4 className="font-semibold text-lean-black mb-2">5. Contact Intelligence & Professional Context</h4>
+                    <p className="text-lean-black-80 text-sm">
+                      Enriched contact data from Apollo.io and LinkedIn provides deep insights:
+                    </p>
+                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
+                      <li><strong>Contact Level Breakdown:</strong> C-Level, Sr. Level, and Other contacts categorized by title</li>
+                      <li><strong>Case Involvement by Level:</strong> Which contact levels are submitting support cases (C-Level involvement = major concern)</li>
+                      <li><strong>Job Change Signals:</strong> Recent job changes or high job change likelihood indicate account risk</li>
+                      <li><strong>Stale Relationships:</strong> Contacts with no activity in 90+ days may indicate disengagement</li>
+                      <li><strong>Engagement Signals:</strong> Social media interactions with company content</li>
+                      <li><strong>Professional Context:</strong> Department, reporting structure, company size, industry, and technologies</li>
+                    </ul>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-xl font-semibold text-lean-black mb-3">Sentiment Score Scale</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-red-50 rounded-lg p-4 border-2 border-red-200">
+                    <div className="text-2xl font-bold text-red-600 mb-2">1-4</div>
+                    <p className="text-sm font-semibold text-lean-black mb-1">At Risk</p>
+                    <p className="text-xs text-lean-black-80">Very negative sentiment. Customer may be at risk of churn. Immediate attention required.</p>
+                  </div>
+                  <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-200">
+                    <div className="text-2xl font-bold text-yellow-600 mb-2">5-7</div>
+                    <p className="text-sm font-semibold text-lean-black mb-1">Neutral/Mixed</p>
+                    <p className="text-xs text-lean-black-80">Mixed or neutral sentiment. Relationship is stable but needs attention to improve.</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
+                    <div className="text-2xl font-bold text-lean-green mb-2">8-10</div>
+                    <p className="text-sm font-semibold text-lean-black mb-1">Positive</p>
+                    <p className="text-xs text-lean-black-80">Strong positive sentiment. Customer is satisfied and may be a strong advocate.</p>
+                  </div>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="text-xl font-semibold text-lean-black mb-3">What the Analysis Includes</h3>
+                <p className="text-lean-black-80 leading-relaxed mb-3">
+                  Each sentiment analysis provides two levels of detail:
+                </p>
+                <div className="space-y-3 mb-3">
+                  <div className="bg-lean-almost-white rounded-lg p-3">
+                    <p className="font-semibold text-lean-black mb-1">Executive Summary (150 words)</p>
+                    <p className="text-sm text-lean-black-80">
+                      A concise, high-level overview for C-level executives focusing on overall sentiment, top critical factors, immediate actions, and relationship health status.
+                    </p>
+                  </div>
+                  <div className="bg-lean-almost-white rounded-lg p-3">
+                    <p className="font-semibold text-lean-black mb-1">Comprehensive Analysis (500-800 words)</p>
+                    <p className="text-sm text-lean-black-80">
+                      A detailed, in-depth analysis for CSMs and Account Managers including detailed factor breakdown, specific concerns/positive signals with examples, relationship trajectory with evidence, contact level involvement analysis, support case patterns, engagement metrics, risk factors, opportunities, and detailed recommendations.
+                    </p>
+                  </div>
+                </div>
+                <p className="text-lean-black-80 leading-relaxed mb-2">
+                  Both analyses include:
+                </p>
+                <ul className="list-disc list-inside text-lean-black-80 space-y-2">
+                  <li><strong>Key Factors:</strong> What most influenced the sentiment score</li>
+                  <li><strong>Specific Concerns or Signals:</strong> Identified issues or positive indicators</li>
+                  <li><strong>Relationship Trajectory:</strong> Whether sentiment is improving, declining, or stable</li>
+                  <li><strong>Contact Level Analysis:</strong> Critical assessment of which contact levels are involved in support cases</li>
+                  <li><strong>Actionable Insights:</strong> Detailed recommendations for account management</li>
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-xl font-semibold text-lean-black mb-3">Best Practices</h3>
+                <div className="bg-lean-almost-white rounded-lg p-4 space-y-2">
+                  <p className="text-sm text-lean-black-80">
+                    <strong>✓ Regular Monitoring:</strong> Check sentiment after important meetings or when support cases are resolved
+                  </p>
+                  <p className="text-sm text-lean-black-80">
+                    <strong>✓ Context Matters:</strong> Review the detailed data sources to understand what influenced the score
+                  </p>
+                  <p className="text-sm text-lean-black-80">
+                    <strong>✓ Action on Low Scores:</strong> Scores of 4 or below indicate immediate attention is needed
+                  </p>
+                  <p className="text-sm text-lean-black-80">
+                    <strong>✓ Track Trends:</strong> Monitor sentiment over time to identify improving or declining relationships
+                  </p>
+                </div>
+              </section>
+
+              <section className="pt-4 border-t border-lean-black/20">
+                <p className="text-sm text-lean-black-60">
+                  <strong>AI Model:</strong> Google Gemini (auto-discovered best available model)<br />
+                  <strong>Analysis Framework:</strong> 6-dimensional analysis (Conversation, Support Context, Account Profile, Engagement, Contact Intelligence, Overall Assessment)
+                </p>
+              </section>
+            </div>
+          </div>
+        );
+      };
+      
       // Fetch cases for an account (can be called independently)
       const fetchCasesForAccount = useCallback(async (accountData) => {
         if (!accountData) {
@@ -1244,185 +1423,6 @@
       };
 
       // Results Page Component
-      // HelpPage component - reusable help content
-      const HelpPage = ({ onClose }) => {
-        return (
-          <div className="bg-lean-white rounded-lg shadow-lg p-8 mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="typography-heading text-lean-black">How Sentiment Analysis Works</h2>
-              <button
-                onClick={onClose}
-                className="text-lean-black-60 hover:text-lean-black"
-                aria-label="Close help"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="prose max-w-none space-y-6">
-              <section>
-                <h3 className="typography-heading text-lean-black mb-3">Overview</h3>
-                <p className="typography-body text-lean-black-80">
-                  L.U.C.I. uses Google Gemini AI to analyze customer sentiment by combining conversation transcripts from Avoma meetings with comprehensive Salesforce account context. The analysis provides a score from 1-10 and detailed insights about the customer relationship.
-                </p>
-              </section>
-
-              <section>
-                <h3 className="typography-heading text-lean-black mb-3">Data Sources Analyzed</h3>
-                <div className="space-y-4">
-                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
-                    <h4 className="font-semibold text-lean-black mb-2">1. Avoma Conversation Transcripts</h4>
-                    <p className="text-lean-black-80 text-sm">
-                      The AI analyzes the actual conversation between your team and the customer, looking for:
-                    </p>
-                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
-                      <li>Tone and emotional indicators (frustration, satisfaction, urgency)</li>
-                      <li>Language patterns and sentiment signals</li>
-                      <li>Initial concerns and how they were addressed</li>
-                      <li>Resolution quality and final satisfaction level</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
-                    <h4 className="font-semibold text-lean-black mb-2">2. Salesforce Support Cases</h4>
-                    <p className="text-lean-black-80 text-sm">
-                      Recent support cases provide critical context:
-                    </p>
-                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
-                      <li><strong>Case Count:</strong> Number of recent cases (more cases may indicate issues)</li>
-                      <li><strong>Case Descriptions:</strong> Customer feedback and issue details</li>
-                      <li><strong>Priority & Status:</strong> High priority or unresolved cases signal risk</li>
-                      <li><strong>Case Types & Reasons:</strong> Patterns in support needs</li>
-                      <li><strong>Resolution Timelines:</strong> How quickly issues are resolved</li>
-                      <li><strong>⚠️ Contact Level Involvement:</strong> <strong>CRITICAL INDICATOR</strong> - C-Level or Sr. Level executives submitting support cases is a major red flag indicating serious escalation</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-lean-almost-white rounded-lg p-4 border-l-4 border-lean-black/20">
-                    <h4 className="font-semibold text-lean-black mb-2">3. Account Profile Context</h4>
-                    <p className="text-lean-black-80 text-sm">
-                      Account characteristics help set appropriate expectations:
-                    </p>
-                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
-                      <li><strong>Account Tier:</strong> Higher tier accounts may have different expectations</li>
-                      <li><strong>Contract Value:</strong> Expiring ARR indicates renewal risk</li>
-                      <li><strong>Industry:</strong> Industry norms and standards</li>
-                      <li><strong>Account Manager:</strong> Relationship context</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-lean-almost-white rounded-lg p-4 border-l-4 border-lean-green">
-                    <h4 className="font-semibold text-lean-black mb-2">4. Engagement Metrics</h4>
-                    <p className="text-lean-black-80 text-sm">
-                      Meeting participation and frequency:
-                    </p>
-                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
-                      <li>Total Avoma calls/meetings with the customer</li>
-                      <li>Number of meetings with ready transcripts</li>
-                      <li>Engagement frequency and participation</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
-                    <h4 className="font-semibold text-lean-black mb-2">5. Contact Intelligence & Professional Context</h4>
-                    <p className="text-lean-black-80 text-sm">
-                      Enriched contact data from Apollo.io and LinkedIn provides deep insights:
-                    </p>
-                    <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
-                      <li><strong>Contact Level Breakdown:</strong> C-Level, Sr. Level, and Other contacts categorized by title</li>
-                      <li><strong>Case Involvement by Level:</strong> Which contact levels are submitting support cases (C-Level involvement = major concern)</li>
-                      <li><strong>Job Change Signals:</strong> Recent job changes or high job change likelihood indicate account risk</li>
-                      <li><strong>Stale Relationships:</strong> Contacts with no activity in 90+ days may indicate disengagement</li>
-                      <li><strong>Engagement Signals:</strong> Social media interactions with company content</li>
-                      <li><strong>Professional Context:</strong> Department, reporting structure, company size, industry, and technologies</li>
-                    </ul>
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <h3 className="text-xl font-semibold text-lean-black mb-3">Sentiment Score Scale</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-red-50 rounded-lg p-4 border-2 border-red-200">
-                    <div className="text-2xl font-bold text-red-600 mb-2">1-4</div>
-                    <p className="text-sm font-semibold text-lean-black mb-1">At Risk</p>
-                    <p className="text-xs text-lean-black-80">Very negative sentiment. Customer may be at risk of churn. Immediate attention required.</p>
-                  </div>
-                  <div className="bg-yellow-50 rounded-lg p-4 border-2 border-yellow-200">
-                    <div className="text-2xl font-bold text-yellow-600 mb-2">5-7</div>
-                    <p className="text-sm font-semibold text-lean-black mb-1">Neutral/Mixed</p>
-                    <p className="text-xs text-lean-black-80">Mixed or neutral sentiment. Relationship is stable but needs attention to improve.</p>
-                  </div>
-                  <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
-                    <div className="text-2xl font-bold text-lean-green mb-2">8-10</div>
-                    <p className="text-sm font-semibold text-lean-black mb-1">Positive</p>
-                    <p className="text-xs text-lean-black-80">Strong positive sentiment. Customer is satisfied and may be a strong advocate.</p>
-                  </div>
-                </div>
-              </section>
-
-              <section>
-                <h3 className="text-xl font-semibold text-lean-black mb-3">What the Analysis Includes</h3>
-                <p className="text-lean-black-80 leading-relaxed mb-3">
-                  Each sentiment analysis provides two levels of detail:
-                </p>
-                <div className="space-y-3 mb-3">
-                  <div className="bg-lean-almost-white rounded-lg p-3">
-                    <p className="font-semibold text-lean-black mb-1">Executive Summary (150 words)</p>
-                    <p className="text-sm text-lean-black-80">
-                      A concise, high-level overview for C-level executives focusing on overall sentiment, top critical factors, immediate actions, and relationship health status.
-                    </p>
-                  </div>
-                  <div className="bg-lean-almost-white rounded-lg p-3">
-                    <p className="font-semibold text-lean-black mb-1">Comprehensive Analysis (500-800 words)</p>
-                    <p className="text-sm text-lean-black-80">
-                      A detailed, in-depth analysis for CSMs and Account Managers including detailed factor breakdown, specific concerns/positive signals with examples, relationship trajectory with evidence, contact level involvement analysis, support case patterns, engagement metrics, risk factors, opportunities, and detailed recommendations.
-                    </p>
-                  </div>
-                </div>
-                <p className="text-lean-black-80 leading-relaxed mb-2">
-                  Both analyses include:
-                </p>
-                <ul className="list-disc list-inside text-lean-black-80 space-y-2">
-                  <li><strong>Key Factors:</strong> What most influenced the sentiment score</li>
-                  <li><strong>Specific Concerns or Signals:</strong> Identified issues or positive indicators</li>
-                  <li><strong>Relationship Trajectory:</strong> Whether sentiment is improving, declining, or stable</li>
-                  <li><strong>Contact Level Analysis:</strong> Critical assessment of which contact levels are involved in support cases</li>
-                  <li><strong>Actionable Insights:</strong> Detailed recommendations for account management</li>
-                </ul>
-              </section>
-
-              <section>
-                <h3 className="text-xl font-semibold text-lean-black mb-3">Best Practices</h3>
-                <div className="bg-lean-almost-white rounded-lg p-4 space-y-2">
-                  <p className="text-sm text-lean-black-80">
-                    <strong>✓ Regular Monitoring:</strong> Check sentiment after important meetings or when support cases are resolved
-                  </p>
-                  <p className="text-sm text-lean-black-80">
-                    <strong>✓ Context Matters:</strong> Review the detailed data sources to understand what influenced the score
-                  </p>
-                  <p className="text-sm text-lean-black-80">
-                    <strong>✓ Action on Low Scores:</strong> Scores of 4 or below indicate immediate attention is needed
-                  </p>
-                  <p className="text-sm text-lean-black-80">
-                    <strong>✓ Track Trends:</strong> Monitor sentiment over time to identify improving or declining relationships
-                  </p>
-                </div>
-              </section>
-
-              <section className="pt-4 border-t border-lean-black/20">
-                <p className="text-sm text-lean-black-60">
-                  <strong>AI Model:</strong> Google Gemini (auto-discovered best available model)<br />
-                  <strong>Analysis Framework:</strong> 6-dimensional analysis (Conversation, Support Context, Account Profile, Engagement, Contact Intelligence, Overall Assessment)
-                </p>
-              </section>
-            </div>
-          </div>
-        );
-      };
-
       const ResultsPage = ({ sentiment, dataSources, analysisData, selectedAccount, cases, contacts, sentimentHistory, historyLoading, avomaWarning, onBack, onShowHelp, onCloseHelp, showHelp }) => {
         const [showDataDetails, setShowDataDetails] = useState(false);
         
