@@ -1426,6 +1426,19 @@
       const ResultsPage = ({ sentiment, dataSources, analysisData, selectedAccount, cases, contacts, sentimentHistory, historyLoading, avomaWarning, onBack, onShowHelp, onCloseHelp, showHelp }) => {
         const [showDataDetails, setShowDataDetails] = useState(false);
         
+        // Scroll to help section when it opens
+        useEffect(() => {
+          if (showHelp) {
+            // Small delay to ensure DOM is updated
+            setTimeout(() => {
+              const helpSection = document.getElementById('help-section');
+              if (helpSection) {
+                helpSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }, 100);
+          }
+        }, [showHelp]);
+        
         // Categorize contacts for display
         const categorizedContacts = contacts.map(c => {
           const title = c.title || c.linkedinProfile?.current_title || '';
@@ -1495,9 +1508,17 @@
                   </div>
                 </div>
                 <button
-                  onClick={onShowHelp}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (onShowHelp && typeof onShowHelp === 'function') {
+                      onShowHelp();
+                    } else if (!isProduction) {
+                      console.warn('onShowHelp is not a function:', onShowHelp);
+                    }
+                  }}
                   className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
                   aria-label="Show help and explanation"
+                  type="button"
                 >
                   Help
                 </button>
@@ -1507,7 +1528,11 @@
             <main className="flex-1 px-4 sm:px-6 lg:px-8 py-12">
               <div className="max-w-6xl mx-auto">
                 {/* Help Page */}
-                {showHelp && <HelpPage onClose={() => onCloseHelp && onCloseHelp()} />}
+                {showHelp && (
+                  <div id="help-section">
+                    <HelpPage onClose={() => onCloseHelp && onCloseHelp()} />
+                  </div>
+                )}
                 
                 {/* Back Button */}
                 <div className="mb-8">
