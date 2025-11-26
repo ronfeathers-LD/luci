@@ -517,7 +517,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             }));
 
             // Use bulk enrichment endpoint to batch API calls
-            const bulkEnrichResponse = await fetch('/api/apollo-enrich-bulk', {
+            const bulkEnrichResponse = await fetch('/api/apollo-enrich', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

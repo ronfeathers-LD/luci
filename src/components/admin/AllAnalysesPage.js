@@ -20,6 +20,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         limit: pagination.limit.toString(),
         offset: pagination.offset.toString(),
         days: filters.days.toString(),
+        all: 'true', // Admin view flag
       });
       
       if (filters.accountId) {
@@ -30,7 +31,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         params.append('cached', 'true');
       }
       
-      const response = await fetch(`/api/admin/all-analyses?${params}`);
+      const response = await fetch(`/api/sentiment-history?${params}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch analyses');
