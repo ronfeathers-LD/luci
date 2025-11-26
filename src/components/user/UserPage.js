@@ -255,7 +255,7 @@ const UserPage = ({ user, onSignOut }) => {
       setError(null);
 
       const accountIds = Array.from(selectedAccounts);
-      const response = await fetch('/api/user-accounts/bulk', {
+      const response = await fetch('/api/user-accounts', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -299,13 +299,14 @@ const UserPage = ({ user, onSignOut }) => {
       setError(null);
 
       // First, clear all user-account relationships
-      const clearResponse = await fetch('/api/user-accounts/clear-all', {
-        method: 'POST',
+      const clearResponse = await fetch('/api/user-accounts', {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           userId: user.id,
+          clearAll: true,
         }),
       });
 
