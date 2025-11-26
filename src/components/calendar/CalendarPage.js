@@ -19,7 +19,7 @@ const CalendarPage = ({ user, onSignOut }) => {
     }
 
     try {
-      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar-status?userId=${user.id}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar-auth?action=status&userId=${user.id}`);
       if (response.ok) {
         const data = await response.json();
         setCalendarConnected(data.connected || false);

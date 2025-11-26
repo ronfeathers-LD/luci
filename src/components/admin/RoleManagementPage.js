@@ -15,7 +15,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch('/api/user-roles');
+      const response = await fetch('/api/roles?userRoles=true');
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -72,7 +72,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       setUpdatingUserId(userId);
       setError(null);
 
-      const response = await fetch('/api/user-roles', {
+      const response = await fetch('/api/roles', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

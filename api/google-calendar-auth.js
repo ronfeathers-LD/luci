@@ -33,7 +33,62 @@ module.exports = async function handler(req, res) {
       return sendErrorResponse(res, new Error('Google Calendar not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (or GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET) environment variables.'), 400);
     }
 
-    const { code, state, error: oauthError, userId } = req.query;
+    const { code, state, error: oauthError, userId, action } = req.query;
+
+    // Handle status check (GET request with action=status or no code/userId)
+    if (req.method === 'GET' && (action === 'status' || (!code && !userId && !oauthError))) {
+      // Check if Google Calendar is configured
+      try {
+        getGoogleCalendarConfig();
+      } catch (configError) {
+        const hasClientId = !!(process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
+        const hasClientSecret = !!(process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET);
+        const clientIdValue = process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
+        const isApiKey = clientIdValue && clientIdValue.startsWith('AIza');
+        
+        let errorMessage = 'Google Calendar integration is not configured.';
+        if (isApiKey) {
+          errorMessage = 'Google Calendar integration is misconfigured. An API key is being used instead of an OAuth Client ID. Please update GOOGLE_CLIENT_ID or GOOGLE_CALENDAR_CLIENT_ID to use an OAuth Client ID (ending with .apps.googleusercontent.com) instead of an API key.';
+        } else if (!hasClientId || !hasClientSecret) {
+          errorMessage = 'Google Calendar integration is not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (or GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET) environment variables.';
+        } else {
+          errorMessage = configError.message || errorMessage;
+        }
+        
+        return sendSuccessResponse(res, {
+          connected: false,
+          configured: false,
+          message: errorMessage,
+          error: configError.message,
+        });
+      }
+
+      const statusUserId = userId || req.query.userId;
+      if (!statusUserId) {
+        return sendErrorResponse(res, new Error('Missing required parameter: userId'), 400);
+      }
+
+      // Check if user has an active Google Calendar token
+      const { data: tokenData, error } = await supabase
+        .from('google_calendar_tokens')
+        .select('id, token_expires_at, is_active')
+        .eq('user_id', statusUserId)
+        .eq('is_active', true)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        logError('Error checking calendar status', error);
+        throw error;
+      }
+
+      const connected = !!(tokenData && tokenData.is_active);
+
+      return sendSuccessResponse(res, {
+        connected,
+        configured: true,
+        tokenExpiresAt: tokenData?.token_expires_at || null,
+      });
+    }
 
     // Step 1: Initiate OAuth flow (redirect to Google)
     if (!code && !oauthError) {
