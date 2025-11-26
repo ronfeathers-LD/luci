@@ -7,7 +7,8 @@
 
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');
+const { getUserRoles } = require('./user-roles');
 
 module.exports = async function handler(req, res) {
   // Handle preflight requests
@@ -85,9 +86,44 @@ module.exports = async function handler(req, res) {
         }
 
         user = newUser;
+
+        // Assign default "Account Manager" role to new users
+        const { data: defaultRole, error: roleError } = await supabase
+          .from('roles')
+          .select('id')
+          .eq('name', 'Account Manager')
+          .single();
+
+        if (roleError) {
+          logError('Error fetching Account Manager role:', roleError);
+        }
+
+        if (defaultRole) {
+          const { error: insertRoleError } = await supabase
+            .from('user_roles')
+            .insert({
+              user_id: user.id,
+              role_id: defaultRole.id,
+            });
+
+          if (insertRoleError) {
+            logError('Error assigning default role to new user:', insertRoleError);
+            // Continue anyway - user is created, role assignment can be done later
+          }
+        } else if (!roleError) {
+          // Only warn if role lookup succeeded but returned no role
+          logWarn('Could not assign default role to new user - Account Manager role not found in database');
+        }
       }
 
-      return sendSuccessResponse(res, user);
+      // Fetch and include roles
+      const roles = await getUserRoles(supabase, user.id);
+      const userWithRoles = {
+        ...user,
+        roles: roles,
+      };
+
+      return sendSuccessResponse(res, userWithRoles);
     } else if (req.method === 'GET') {
       // Get user by email or ID
       const { email, id, google_sub } = req.query;
@@ -125,7 +161,14 @@ module.exports = async function handler(req, res) {
         throw fetchError;
       }
 
-      return sendSuccessResponse(res, user);
+      // Fetch and include roles
+      const roles = await getUserRoles(supabase, user.id);
+      const userWithRoles = {
+        ...user,
+        roles: roles,
+      };
+
+      return sendSuccessResponse(res, userWithRoles);
     }
   } catch (error) {
     logError('Error in users function:', error);

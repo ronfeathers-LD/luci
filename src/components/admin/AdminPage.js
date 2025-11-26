@@ -75,17 +75,21 @@ const AdminPage = ({ user }) => {
 
             {/* Admin Section 2 */}
             <div className="bg-lean-almost-white rounded-lg p-6 border border-lean-black/20">
-              <h3 className="text-lg font-semibold text-lean-black mb-4">User Management</h3>
+              <h3 className="text-lg font-semibold text-lean-black mb-4">Role Management</h3>
               <p className="text-sm text-lean-black-70">
-                View and manage user accounts and permissions.
+                View and manage user roles and permissions.
               </p>
               <button 
                 onClick={() => {
-                  alert('User Management coming soon!');
+                  if (window.navigate) {
+                    window.navigate('/admin/roles');
+                  } else {
+                    window.location.href = '/admin/roles';
+                  }
                 }}
                 className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
               >
-                Manage Users
+                Manage Roles
               </button>
             </div>
 

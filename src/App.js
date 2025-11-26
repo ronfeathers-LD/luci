@@ -53,6 +53,37 @@ const App = () => {
     };
   }, []);
 
+  // Refresh user roles if user exists but roles are missing or when user first loads
+  useEffect(() => {
+    const refreshUserRoles = async () => {
+      if (user && user.id) {
+        // Always refresh roles to ensure we have the latest data
+        try {
+          const response = await fetch(`/api/users?id=${user.id}`);
+          if (response.ok) {
+            const userData = await response.json();
+            if (userData.roles) {
+              // Update localStorage and state with fresh user data including roles
+              const updatedUser = { ...user, roles: userData.roles };
+              localStorage.setItem('userInfo', JSON.stringify(updatedUser));
+              setUser(updatedUser);
+            }
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            window.logError('Failed to fetch user roles:', errorData);
+          }
+        } catch (error) {
+          window.logError('Error refreshing user roles:', error);
+        }
+      }
+    };
+
+    // Refresh roles on mount if user exists
+    if (user && user.id) {
+      refreshUserRoles();
+    }
+  }, []); // Only run once on mount
+
   useEffect(() => {
     analytics.pageView(user ? (currentPath === '/admin' ? 'admin' : 'dashboard') : 'login');
   }, [user, currentPath]);
@@ -103,18 +134,56 @@ const App = () => {
     analytics.track('user_signed_out');
   };
 
+  // Helper function to check if user has admin role (case-insensitive)
+  const hasAdminRole = (user) => {
+    if (!user || !user.roles) return false;
+    return user.roles.some(role => role.name && role.name.toLowerCase() === 'admin');
+  };
+
   // If not logged in, show login page
   if (!user) {
     return <window.LoginPage onSignIn={handleSignIn} />;
   }
 
   // Route based on current path
-  if (currentPath === '/admin/analyses') {
-    return <window.AllAnalysesPage user={user} onSignOut={handleSignOut} />;
-  }
+  // Admin routes require admin role
+  if (currentPath.startsWith('/admin')) {
+    if (!hasAdminRole(user)) {
+      return (
+        <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
+          <div className="text-center bg-lean-white rounded-lg shadow-lg p-8 max-w-md">
+            <h1 className="typography-heading text-lean-black mb-4">Access Denied</h1>
+            <p className="text-lean-black-70 mb-6">
+              You need administrator privileges to access this page.
+            </p>
+            <button
+              onClick={() => {
+                if (window.navigate) {
+                  window.navigate('/');
+                } else {
+                  window.location.href = '/';
+                }
+              }}
+              className="px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
 
-  if (currentPath === '/admin') {
-    return <window.AdminPage user={user} onSignOut={handleSignOut} />;
+    if (currentPath === '/admin/roles') {
+      return <window.RoleManagementPage user={user} onSignOut={handleSignOut} />;
+    }
+
+    if (currentPath === '/admin/analyses') {
+      return <window.AllAnalysesPage user={user} onSignOut={handleSignOut} />;
+    }
+
+    if (currentPath === '/admin') {
+      return <window.AdminPage user={user} onSignOut={handleSignOut} />;
+    }
   }
 
   if (currentPath === '/user') {
