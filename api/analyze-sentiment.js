@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
     return sendErrorResponse(res, new Error('Server configuration error'), 500, isProduction());
   }
 
-  const { transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier } = req.body;
+  const { transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier, forceRefresh } = req.body;
 
   // Validate input
   // transcription can be empty string (analysis can proceed with Salesforce data only)
@@ -61,14 +61,164 @@ module.exports = async function handler(req, res) {
     return sendErrorResponse(res, new Error('Invalid salesforceContext: must be an object'), 400);
   }
   
+  // Create a hash/fingerprint of the input data to check for duplicates
+  // We'll use a hash of key data points that would affect sentiment
+  const crypto = require('crypto');
+  
+  // Create a simplified hash of the transcription (first 1000 chars + length + last 100 chars)
+  // This captures content changes without hashing the entire transcription
+  const transcriptionFingerprint = transcription 
+    ? `${transcription.substring(0, 1000)}|${transcription.length}|${transcription.substring(Math.max(0, transcription.length - 100))}`
+    : '';
+  
+  // Create hash of key metrics that affect sentiment
+  const inputHash = crypto.createHash('sha256')
+    .update(JSON.stringify({
+      transcriptionFingerprint: transcriptionFingerprint,
+      transcriptionLength: transcription?.length || 0,
+      casesCount: salesforceContext.total_cases_count || 0,
+      avomaCallsTotal: salesforceContext.total_avoma_calls || 0,
+      avomaCallsReady: salesforceContext.ready_avoma_calls || 0,
+      // Include key contact/case data that affects sentiment
+      contactLevels: salesforceContext.contact_levels ? {
+        cLevelInCases: salesforceContext.contact_levels.c_level_in_cases || 0,
+        srLevelInCases: salesforceContext.contact_levels.sr_level_in_cases || 0,
+      } : null,
+      // Hash of case statuses/priorities to detect case changes
+      // Note: salesforceContext uses 'recent_tickets' not 'cases'
+      // Sort by createdDay first, then status, then priority for deterministic ordering
+      caseSignatures: salesforceContext.recent_tickets ? 
+        (salesforceContext.recent_tickets || []).slice(0, 50).map(c => ({
+          status: c.status || null,
+          priority: c.priority || null,
+          // Include created date truncated to day (to catch new cases)
+          createdDay: c.created_date ? new Date(c.created_date).toISOString().split('T')[0] : null,
+        }))
+        .sort((a, b) => {
+          // Sort deterministically: by createdDay (newest first), then status, then priority
+          const dayA = a.createdDay || '';
+          const dayB = b.createdDay || '';
+          if (dayA !== dayB) return dayB.localeCompare(dayA); // Newest first
+          const statusA = a.status || '';
+          const statusB = b.status || '';
+          if (statusA !== statusB) return statusA.localeCompare(statusB);
+          const priorityA = a.priority || '';
+          const priorityB = b.priority || '';
+          return priorityA.localeCompare(priorityB);
+        })
+        : null,
+    }))
+    .digest('hex');
+  
+  // Check if we have a recent analysis with the same input data (skip if forceRefresh is true)
+  if (!forceRefresh) {
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase && (accountId || salesforceAccountId)) {
+      // Resolve account_id - check if accountId is a UUID or a Salesforce ID
+      let resolvedAccountId = null;
+      
+      // Check if accountId is a UUID (has dashes and is 36 chars)
+      const isUUID = accountId && accountId.includes('-') && accountId.length === 36;
+      
+      if (isUUID) {
+        // accountId is already a UUID, use it directly
+        resolvedAccountId = accountId;
+        log(`accountId ${accountId} is a UUID, using directly for cache check`);
+      } else {
+        // accountId is either missing or is a Salesforce ID, so resolve it
+        const lookupId = accountId || salesforceAccountId;
+        if (lookupId) {
+          log(`Resolving account UUID from salesforce_id: ${lookupId}`);
+          const { data: account, error: accountError } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('salesforce_id', lookupId)
+            .maybeSingle();
+          
+          if (accountError) {
+            logError('Error looking up account for cache check:', accountError);
+            resolvedAccountId = null;
+          } else if (account) {
+            resolvedAccountId = account.id;
+          }
+        }
+      }
+
+      if (resolvedAccountId) {
+        // Check for analysis with exact same input hash (perfect match)
+        // Use maybeSingle() instead of single() to avoid errors when no match found
+        const { data: exactMatch, error: exactMatchError } = await supabase
+          .from('sentiment_history')
+          .select('*')
+          .eq('account_id', resolvedAccountId)
+          .eq('input_hash', inputHash)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (exactMatchError) {
+          log(`Error checking exact match cache: ${exactMatchError.message}`);
+        } else if (exactMatch) {
+          log(`✅ Found cached sentiment analysis with identical input data (analyzed at ${exactMatch.analyzed_at}) - returning cached result (no changes detected)`);
+          return sendSuccessResponse(res, {
+            score: exactMatch.score,
+            summary: exactMatch.summary,
+            comprehensiveAnalysis: exactMatch.comprehensive_analysis || exactMatch.summary,
+            cached: true,
+            analyzedAt: exactMatch.analyzed_at,
+            sentimentId: exactMatch.id, // Include sentiment ID for navigation
+          });
+        }
+
+        // Fallback: Check for recent analysis (within last 7 days) with same signature
+        // This catches cases where the hash column doesn't exist yet or is null
+        // Extended to 7 days since if data hasn't changed, we can use older cached results
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        
+        const { data: recentAnalysis, error: recentAnalysisError } = await supabase
+          .from('sentiment_history')
+          .select('*')
+          .eq('account_id', resolvedAccountId)
+          .gte('analyzed_at', sevenDaysAgo)
+          .eq('transcription_length', transcription?.length || 0)
+          .eq('cases_count', salesforceContext.total_cases_count || 0)
+          .eq('avoma_calls_total', salesforceContext.total_avoma_calls || 0)
+          .eq('avoma_calls_ready', salesforceContext.ready_avoma_calls || 0)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (recentAnalysisError) {
+          logError('Error checking recent analysis cache:', recentAnalysisError);
+        } else if (recentAnalysis) {
+          log(`✅ Using cached sentiment analysis from ${new Date(recentAnalysis.analyzed_at).toLocaleString()}`);
+          return sendSuccessResponse(res, {
+            score: recentAnalysis.score,
+            summary: recentAnalysis.summary,
+            comprehensiveAnalysis: recentAnalysis.comprehensive_analysis || recentAnalysis.summary,
+            cached: true,
+            analyzedAt: recentAnalysis.analyzed_at,
+            sentimentId: recentAnalysis.id, // Include sentiment ID for navigation
+          });
+        }
+      }
+      }
+    } catch (cacheCheckError) {
+      // Don't fail the request if cache check fails - just log and continue
+      logError('Cache check failed, proceeding with new analysis:', cacheCheckError);
+    }
+  } else {
+    log('Force refresh requested - skipping cache check');
+  }
+  
   try {
     // Default model name (used if discovery fails)
     const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
-    log(`Starting with default model: ${modelName} with API key prefix: ${apiKey ? apiKey.substring(0, 10) + '...' : 'missing'}`);
     
-    // Use a longer timeout for Gemini API calls (60 seconds)
-    // This accounts for model discovery time + API response time
-    const GEMINI_API_TIMEOUT = 60000; // 60 seconds
+    // Timeout for Gemini API calls
+    // Reduced since we skip model discovery for faster performance
+    const GEMINI_API_TIMEOUT = 45000; // 45 seconds (should be plenty for API call)
     
     const requestBody = {
       contents: [{
@@ -334,50 +484,75 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
       }
     }
     
-    // Discover available models - try v1 first (more stable), then v1beta
-    // Note: v1beta may have restricted access even if v1 works
-    let discoveredModels = [];
-    for (const version of ['v1', 'v1beta']) {
-      const models = await discoverAvailableModels(version);
-      if (models.length > 0) {
-        log(`Discovered ${models.length} available models in ${version} API`);
-        discoveredModels = models;
-        break;
-      }
-    }
-    
-    // If no models discovered, use fallback list
+    // Skip model discovery for better performance - use known fast model first
+    // gemini-flash-latest is optimized for speed and usually available
+    // Only discover if explicitly enabled via environment variable
+    // NOTE: If models fail, set SKIP_MODEL_DISCOVERY=false to discover available models
+    const SKIP_MODEL_DISCOVERY = process.env.SKIP_MODEL_DISCOVERY !== 'false'; // Default to skipping
     let modelsToTry = [];
-    if (discoveredModels.length > 0) {
-      // Sort models: prefer pro over flash, prefer shorter names (more stable)
-      const sortedModels = discoveredModels.sort((a, b) => {
-        const aIsPro = a.name.includes('pro');
-        const bIsPro = b.name.includes('pro');
-        if (aIsPro !== bIsPro) return bIsPro ? 1 : -1;
-        return a.name.length - b.name.length;
-      }).slice(0, 5); // Use top 5 models
-      
-      // Convert to format expected by loop: { model, version }
-      modelsToTry = sortedModels.map(m => ({ model: m.name, version: m.version }));
-      log(`Will try models in order: ${modelsToTry.map(m => `${m.model} (${m.version})`).join(', ')}`);
-    } else {
-      log('Could not discover models via API, using fallback list');
+    
+    if (SKIP_MODEL_DISCOVERY) {
+      // Use fast model first (flash is optimized for speed), then fallback to pro
+      // Use -latest versions as suggested by the API error messages
       modelsToTry = [
-        { model: modelName, version: 'v1beta' },
-        { model: 'gemini-1.5-flash', version: 'v1beta' },
-        { model: 'gemini-pro', version: 'v1' },
+        { model: 'gemini-flash-latest', version: 'v1beta' }, // Fastest model - try first
+        { model: 'gemini-1.5-pro-latest', version: 'v1beta' }, // Higher quality fallback
+        { model: 'gemini-1.5-pro', version: 'v1beta' }, // Try without -latest in case it exists
+        { model: modelName, version: 'v1beta' }, // User-configured model
+        { model: 'gemini-pro', version: 'v1' }, // Legacy fallback
       ];
+    } else {
+      // Discover available models - try v1 first (more stable), then v1beta
+      // Note: v1beta may have restricted access even if v1 works
+      let discoveredModels = [];
+      for (const version of ['v1', 'v1beta']) {
+        const models = await discoverAvailableModels(version);
+        if (models.length > 0) {
+          log(`Discovered ${models.length} available models in ${version} API`);
+          discoveredModels = models;
+          break;
+        }
+      }
+      
+      if (discoveredModels.length > 0) {
+        // Sort models: prefer flash (faster) over pro, prefer shorter names (more stable)
+        const sortedModels = discoveredModels.sort((a, b) => {
+          const aIsFlash = a.name.includes('flash');
+          const bIsFlash = b.name.includes('flash');
+          if (aIsFlash !== bIsFlash) return bIsFlash ? 1 : -1; // Prefer flash (faster)
+          const aIsPro = a.name.includes('pro');
+          const bIsPro = b.name.includes('pro');
+          if (aIsPro !== bIsPro) return bIsPro ? 1 : -1;
+          return a.name.length - b.name.length;
+        }).slice(0, 5); // Use top 5 models
+        
+        modelsToTry = sortedModels.map(m => ({ model: m.name, version: m.version }));
+        log(`Will try models in order: ${modelsToTry.map(m => `${m.model} (${m.version})`).join(', ')}`);
+      } else {
+        log('Could not discover models via API, using fallback list');
+        modelsToTry = [
+          { model: 'gemini-flash-latest', version: 'v1beta' },
+          { model: 'gemini-1.5-pro-latest', version: 'v1beta' },
+          { model: modelName, version: 'v1beta' },
+          { model: 'gemini-1.5-pro', version: 'v1beta' },
+          { model: 'gemini-pro', version: 'v1' },
+        ];
+      }
     }
     
     let response = null;
     let lastError = null;
     let lastAttemptedModel = null;
     
+    // Track timing for performance monitoring
+    const analysisStartTime = Date.now();
+    
     for (const { model: tryModel, version: apiVersion } of modelsToTry) {
       lastAttemptedModel = `${tryModel} (${apiVersion})`;
+      const modelAttemptStart = Date.now();
       try {
         const tryUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${tryModel}:generateContent?key=${apiKey}`;
-        log(`Attempting Gemini model: ${tryModel} with API version: ${apiVersion}`);
+        log(`Attempting Gemini model: ${tryModel} with API version: ${apiVersion} (attempt started at ${new Date().toISOString()})`);
         
         // Create API-version-specific request body
         // v1 API doesn't support systemInstruction or responseMimeType/responseSchema
@@ -421,26 +596,20 @@ Provide scores from 1 (very negative - at risk of churn) to 10 (very positive - 
         
         // If we got a response and it's not 404, break out of the loop
         if (response && response.status !== 404) {
-          log(`Successfully using Gemini model: ${tryModel} (${apiVersion})`);
-          lastAttemptedModel = `${tryModel} (${apiVersion})`; // Track successful model
+          const modelAttemptDuration = Date.now() - modelAttemptStart;
+          log(`Using Gemini model: ${tryModel} (${apiVersion}) - ${modelAttemptDuration}ms`);
+          lastAttemptedModel = `${tryModel} (${apiVersion})`;
           break;
         }
         
         // If 404 or 400 (invalid request), try next model
         if (response && (response.status === 404 || response.status === 400)) {
-          if (response.status === 404) {
-            log(`Model ${tryModel} (${apiVersion}) not found (404), trying next model...`);
-          } else {
-            log(`Model ${tryModel} (${apiVersion}) returned 400 (invalid request), trying next model...`);
-          }
           continue;
         }
       } catch (error) {
         lastError = error;
         // If it's a 404 or 400, try next model
         if (error.message && (error.message.includes('404') || error.message.includes('400'))) {
-          const errorType = error.message.includes('404') ? '404' : '400';
-          log(`Model ${tryModel} (${apiVersion}) failed with ${errorType}, trying next model...`);
           continue;
         }
         // For other errors, break and throw
@@ -565,19 +734,38 @@ Error details: ${errorDetails}`), 404, isProduction());
       try {
         const supabase = getSupabaseClient();
         if (supabase) {
-          // Resolve account_id if we only have salesforceAccountId
+          // Resolve account_id - check if accountId is a UUID or a Salesforce ID
           let resolvedAccountId = accountId;
-          if (!resolvedAccountId && salesforceAccountId) {
-            const { data: account } = await supabase
-              .from('accounts')
-              .select('id')
-              .eq('salesforce_id', salesforceAccountId)
-              .single();
-            resolvedAccountId = account?.id || null;
+          
+          // Check if accountId is a UUID (has dashes and is 36 chars)
+          const isUUID = accountId && accountId.includes('-') && accountId.length === 36;
+          
+          if (!isUUID) {
+            // accountId is either missing or is a Salesforce ID, so resolve it
+            const lookupId = accountId || salesforceAccountId;
+            if (lookupId) {
+              const { data: account, error: accountError } = await supabase
+                .from('accounts')
+                .select('id')
+                .eq('salesforce_id', lookupId)
+                .single();
+              
+              if (accountError) {
+                logError('Error looking up account for sentiment save:', accountError);
+                // Try alternative: check if accountId is already a UUID but without dashes check
+                if (accountId && accountId.length === 36) {
+                  resolvedAccountId = accountId; // Assume it's a UUID even without dashes
+                } else {
+                  resolvedAccountId = null;
+                }
+              } else if (account) {
+                resolvedAccountId = account.id;
+              }
+            }
           }
 
           if (resolvedAccountId) {
-            await supabase.from('sentiment_history').insert({
+            const insertData = {
               account_id: resolvedAccountId,
               salesforce_account_id: salesforceAccountId || null,
               user_id: userId || null,
@@ -590,10 +778,33 @@ Error details: ${errorDetails}`), 404, isProduction());
               avoma_calls_total: salesforceContext.total_avoma_calls || 0,
               avoma_calls_ready: salesforceContext.ready_avoma_calls || 0,
               customer_identifier: customerIdentifier || null,
+              input_hash: inputHash, // Store hash for future duplicate detection
               analyzed_at: new Date().toISOString(),
+            };
+            
+            log('Saving sentiment to history:', { 
+              account_id: resolvedAccountId, 
+              salesforce_account_id: salesforceAccountId,
+              customer_identifier: customerIdentifier,
+              score: result.score,
+              input_hash: inputHash ? inputHash.substring(0, 16) + '...' : null,
+              analyzed_at: insertData.analyzed_at,
             });
+            
+            const { data: inserted, error: insertError } = await supabase
+              .from('sentiment_history')
+              .insert(insertData)
+              .select()
+              .single();
 
-            log('Sentiment result saved to history');
+            if (insertError) {
+              logError('Error saving sentiment to history:', insertError);
+            } else if (inserted && inserted.id) {
+              // Include sentiment ID in response for navigation
+              result.sentimentId = inserted.id;
+            }
+          } else {
+            logError('Could not resolve account_id for sentiment save');
           }
         }
       } catch (dbError) {

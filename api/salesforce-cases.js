@@ -15,8 +15,13 @@ const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
  * Get cached cases from Supabase
  */
 async function getCachedCases(supabase, salesforceAccountId) {
-  if (!supabase || !salesforceAccountId) return null;
+  if (!supabase || !salesforceAccountId) {
+    log('getCachedCases: Missing supabase or salesforceAccountId');
+    return null;
+  }
 
+  log(`getCachedCases: Looking up cached cases for account: ${salesforceAccountId}`);
+  
   const { data: cases, error } = await supabase
     .from('cases')
     .select('*')
@@ -24,9 +29,17 @@ async function getCachedCases(supabase, salesforceAccountId) {
       .order('created_date', { ascending: false })
       .limit(API_LIMITS.CASES_PER_ACCOUNT);
 
-  if (error || !cases || cases.length === 0) {
+  if (error) {
+    logError('getCachedCases: Error querying cache:', error);
     return null;
   }
+
+  if (!cases || cases.length === 0) {
+    log(`getCachedCases: No cached cases found for account: ${salesforceAccountId}`);
+    return null;
+  }
+
+  log(`getCachedCases: Found ${cases.length} cached cases for account: ${salesforceAccountId}`);
 
   // Check if cache is fresh (use most recent last_synced_at)
   const mostRecentSync = cases.reduce((latest, current) => {
@@ -35,9 +48,13 @@ async function getCachedCases(supabase, salesforceAccountId) {
     return currentDate > latestDate ? current.last_synced_at : latest;
   }, null);
 
+  const isFresh = isCacheFresh(mostRecentSync, CACHE_TTL.CASES);
+  
+  log(`getCachedCases: Cache freshness check - lastSync: ${mostRecentSync}, isFresh: ${isFresh}`);
+
   return {
     cases: cases,
-    isFresh: isCacheFresh(mostRecentSync, CACHE_TTL.CASES),
+    isFresh: isFresh,
     lastSyncedAt: mostRecentSync,
   };
 }
@@ -281,27 +298,41 @@ module.exports = async function handler(req, res) {
       if (cached && cached.isFresh) {
         log(`Using ${cached.cases.length} cached cases for account: ${salesforceAccountId}`);
         
+        const mappedCases = cached.cases.map(c => ({
+          id: c.salesforce_id,
+          caseNumber: c.case_number,
+          subject: c.subject,
+          status: c.status,
+          priority: c.priority,
+          type: c.type,
+          reason: c.reason,
+          origin: c.origin,
+          createdDate: c.created_date,
+          closedDate: c.closed_date,
+          description: c.description,
+          contactEmail: c.contact_email,
+          contactId: c.contact_id,
+          contactName: c.contact_name,
+        }));
+        
+        log(`Mapped ${mappedCases.length} cases from cache for response`);
+        
         return sendSuccessResponse(res, {
-          cases: cached.cases.map(c => ({
-            id: c.salesforce_id,
-            caseNumber: c.case_number,
-            subject: c.subject,
-            status: c.status,
-            priority: c.priority,
-            type: c.type,
-            reason: c.reason,
-            origin: c.origin,
-            createdDate: c.created_date,
-            closedDate: c.closed_date,
-            description: c.description,
-            contactEmail: c.contact_email,
-            contactId: c.contact_id,
-            contactName: c.contact_name,
-          })),
+          cases: mappedCases,
           total: cached.cases.length,
           cached: true,
           lastSyncedAt: cached.lastSyncedAt,
+          _debug: !isProduction() ? {
+            cacheLookup: true,
+            rawCasesCount: cached.cases.length,
+            mappedCasesCount: mappedCases.length,
+            salesforceAccountId: salesforceAccountId,
+          } : undefined,
         });
+      } else if (cached && !cached.isFresh) {
+        log(`Cache found but stale for account: ${salesforceAccountId}, will refresh from Salesforce`);
+      } else {
+        log(`No cache found for account: ${salesforceAccountId}`);
       }
     }
 
@@ -374,11 +405,18 @@ module.exports = async function handler(req, res) {
       contactName: c.contact_name,
     }));
 
+    log(`Returning ${cases.length} cases from Salesforce for account: ${salesforceAccountId}`);
+    
     return sendSuccessResponse(res, {
       cases: cases,
       total: cases.length,
       cached: false,
       lastSyncedAt: new Date().toISOString(),
+      _debug: !isProduction() ? {
+        cacheLookup: false,
+        casesCount: cases.length,
+        salesforceAccountId: salesforceAccountId,
+      } : undefined,
     });
 
   } catch (error) {

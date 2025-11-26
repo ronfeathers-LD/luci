@@ -98,6 +98,23 @@ module.exports = async function handler(req, res) {
       try {
         const batchEnrichmentResults = await bulkEnrichContacts(supabase, batch);
         
+        // Check if credits were exhausted - stop processing if so
+        const creditsExhausted = batchEnrichmentResults.some(r => r.creditsExhausted);
+        if (creditsExhausted) {
+          // Silently stop processing - enrichment is optional
+          // Mark remaining contacts as skipped (not failed) due to credits
+          for (let j = i + batch.length; j < contactsToEnrich.length; j++) {
+            batchResults.push({
+              success: false,
+              contact: contactsToEnrich[j],
+              error: 'Apollo.io credits exhausted',
+              creditsExhausted: true,
+              skipped: true,
+            });
+          }
+          break; // Exit the batch loop
+        }
+        
         // Save enriched profiles to database
         for (const result of batchEnrichmentResults) {
           if (result.success && result.profile) {
@@ -196,14 +213,24 @@ module.exports = async function handler(req, res) {
 
     // Combine cached and newly enriched results
     const allResults = [...cachedResults, ...batchResults];
+    
+    // Check if credits were exhausted
+    const creditsExhausted = batchResults.some(r => r.creditsExhausted);
+    const enriched = batchResults.filter(r => r.success).length;
+    const cached = cachedResults.length;
+    const failed = allResults.filter(r => !r.success && !r.skipped).length;
+    const skipped = allResults.filter(r => r.skipped).length;
 
     return sendSuccessResponse(res, {
       success: true,
       results: allResults,
       total: allResults.length,
-      enriched: batchResults.filter(r => r.success).length,
-      cached: cachedResults.length,
-      failed: allResults.filter(r => !r.success).length,
+      enriched,
+      cached,
+      failed,
+      skipped,
+      creditsExhausted, // Flag to notify frontend
+      message: creditsExhausted ? 'Apollo.io credits exhausted. Some contacts were not enriched, but analysis will continue with available data.' : null,
     });
 
   } catch (error) {

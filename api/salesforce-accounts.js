@@ -19,7 +19,7 @@ const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
  * Note: Salesforce doesn't allow semi-join subqueries with OR, so we query separately and combine
  */
 
-async function querySalesforceAccounts(conn, userId, userEmail, role) {
+async function querySalesforceAccounts(conn, userId, userEmail, role, ownerOnly = false) {
   // First, get the Salesforce User ID for the email (needed for AccountTeamMember query)
   let salesforceUserId = null;
   try {
@@ -47,7 +47,9 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
   let allAccounts = [];
   const accountMap = new Map(); // Use Map to deduplicate by Account Id
   
-  if (role === 'Account Manager' || role === 'Sales Rep') {
+  // If ownerOnly is true, only query accounts owned by the user (ignore role and team member accounts)
+  // Otherwise, use role-based logic
+  if (ownerOnly || role === 'Account Manager' || role === 'Sales Rep') {
     // Query 1: Accounts owned by user (by Owner.Email)
     // Filter by Type != 'Former Customer' to exclude former customers
     try {
@@ -184,7 +186,8 @@ async function querySalesforceAccounts(conn, userId, userEmail, role) {
     }
     
     // Query 2: Accounts from AccountTeamMember (if we have User ID)
-    if (salesforceUserId) {
+    // Skip team member accounts if ownerOnly is true
+    if (!ownerOnly && salesforceUserId) {
       try {
         // First get Account IDs from AccountTeamMember
         const teamMemberQuery = `SELECT AccountId FROM AccountTeamMember WHERE UserId = '${salesforceUserId}' LIMIT 100`;
@@ -579,6 +582,7 @@ async function getCachedAccounts(supabase, userId, email, role) {
         annualRevenue: account.annual_revenue ? parseFloat(account.annual_revenue) : null,
         ownerId: account.owner_id,
         ownerName: account.owner_name,
+        lastSyncedAt: account.last_synced_at,
       };
     })
     .filter(acc => acc !== null); // Remove any null entries
@@ -603,7 +607,7 @@ module.exports = async function handler(req, res) {
     return sendErrorResponse(res, new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
-  const { userId, email, role, forceRefresh, search } = req.query;
+  const { userId, email, role, forceRefresh, search, ownerOnly, cacheOnly } = req.query;
 
   // Check if this is a search request
   const isSearch = search && search.trim().length >= 2;
@@ -808,7 +812,10 @@ module.exports = async function handler(req, res) {
     // Query Salesforce if cache is stale/missing or force refresh requested
     // BUT: If we have cached accounts, only try Salesforce if force refresh is explicitly requested
     // This prevents unnecessary Salesforce calls when we have valid cached data
-    const shouldTrySalesforce = (needsRefresh || shouldForceRefresh) && (shouldForceRefresh || accounts.length === 0);
+    // If cacheOnly is true, never query Salesforce - just return cached accounts (or empty)
+    const shouldTrySalesforce = !(cacheOnly === 'true' || cacheOnly === '1') && 
+                                 (needsRefresh || shouldForceRefresh) && 
+                                 (shouldForceRefresh || accounts.length === 0);
     
     if (shouldTrySalesforce) {
       try {
@@ -824,7 +831,8 @@ module.exports = async function handler(req, res) {
           sfdcAuth.connection,
           user.id,
           user.email,
-          user.role || role
+          user.role || role,
+          ownerOnly === 'true' || ownerOnly === '1'
         );
 
         // Sync accounts to Supabase
@@ -848,6 +856,7 @@ module.exports = async function handler(req, res) {
           annualRevenue: acc.annual_revenue ? parseFloat(acc.annual_revenue) : null,
           ownerId: acc.owner_id,
           ownerName: acc.owner_name,
+          lastSyncedAt: acc.last_synced_at,
         }));
         
         useCached = false;
@@ -863,7 +872,19 @@ module.exports = async function handler(req, res) {
           logWarn(`Salesforce query failed, using ${accounts.length} cached accounts (may be stale)`);
           useCached = true;
         } else {
-          // No cached accounts available, return error
+          // No cached accounts available
+          // If cacheOnly mode, just return empty array instead of error
+          if (cacheOnly === 'true' || cacheOnly === '1') {
+            log('Cache-only mode: no cached accounts found, returning empty array');
+            return sendSuccessResponse(res, {
+              accounts: [],
+              total: 0,
+              userId: user.id,
+              role: user.role || role || 'Account Manager',
+              cached: false,
+            });
+          }
+          // Otherwise return error
           logError('No cached accounts available and Salesforce query failed');
           return sendErrorResponse(res, new Error('Failed to fetch accounts from Salesforce and no cached accounts available'), 500);
         }
