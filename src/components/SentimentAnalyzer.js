@@ -1,5 +1,5 @@
 // SentimentAnalyzer Component
-const { useState, useCallback, useEffect, useRef } = React;
+const { useState, useCallback, useEffect, useRef, useMemo } = React;
 
 // Analytics helper (structure for future integration)
 const analytics = {
@@ -20,7 +20,7 @@ const analytics = {
 // Fetch Avoma transcription data (with caching)
 const fetchAvomaData = async (customerIdentifier, salesforceAccountId = null) => {
       try {
-        const response = await fetch('/api/avoma-transcription', {
+        const response = await (window.deduplicatedFetch || fetch)('/api/avoma-transcription', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -104,7 +104,7 @@ const fetchSalesforceData = async (customerIdentifier, accountData = null, exist
 
 // Analyze sentiment using secure Vercel Serverless Function
 const analyzeSentiment = async (transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier, forceRefresh = false) => {
-  const response = await fetch('/api/analyze-sentiment', {
+  const response = await (window.deduplicatedFetch || fetch)('/api/analyze-sentiment', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -353,6 +353,9 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
   const fetchCasesForAccount = useCallback(async (accountData) => {
     if (!accountData) {
       setCases([]);
+      return;
+    } {
+      setCases([]);
       setCasesLoading(false);
       setCasesLoadingFromCache(false);
       return;
@@ -390,7 +393,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       
       window.log('Fetching cases with params:', params.toString());
       
-      const casesResponse = await fetch(`/api/salesforce-cases?${params}`);
+      const casesResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-cases?${params}`);
       window.log('Cases API response status:', casesResponse.status, casesResponse.ok);
       
       if (casesResponse.ok) {
@@ -481,7 +484,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         accountId: accountData.id, // This might be a UUID, which is fine for the lookup
       });
       
-      const contactsResponse = await fetch(`/api/salesforce-contacts?${params}`);
+      const contactsResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-contacts?${params}`);
       if (contactsResponse.ok) {
         const contactsData = await contactsResponse.json();
         const fetchedContacts = contactsData.contacts || [];
@@ -517,7 +520,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             }));
 
             // Use bulk enrichment endpoint to batch API calls
-            const bulkEnrichResponse = await fetch('/api/apollo-enrich', {
+            const bulkEnrichResponse = await (window.deduplicatedFetch || fetch)('/api/apollo-enrich', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -588,7 +591,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
               await Promise.all(
                 batch.map(async (contact) => {
                   try {
-                    const apolloEnrichResponse = await fetch('/api/apollo-enrich', {
+                    const apolloEnrichResponse = await (window.deduplicatedFetch || fetch)('/api/apollo-enrich', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -674,7 +677,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           cacheOnly: 'true', // Only return cached accounts, never query Salesforce
         });
 
-        const response = await fetch(`/api/salesforce-accounts?${params}`);
+        const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
         
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -768,7 +771,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         params: params.toString() 
       });
       
-      const response = await fetch(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
       if (response.ok) {
         const data = await response.json();
         window.log('Sentiment history fetched:', { 
@@ -820,7 +823,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         days: '365',
       });
       
-      const response = await fetch(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
       if (response.ok) {
         const data = await response.json();
         if (data.history && data.history.length > 0) {
@@ -871,7 +874,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         userId: user?.id || '',
       });
 
-      const response = await fetch(`/api/salesforce-accounts?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -978,19 +981,16 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         };
       });
 
-      // Count contacts by level
-      const contactLevelCounts = {
-        'C-Level': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'C-Level').length,
-        'Sr. Level': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'Sr. Level').length,
-        'Other': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'Other').length,
-      };
-
-      // Count contacts involved in cases by level
-      const caseInvolvedByLevel = {
-        'C-Level': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'C-Level' && c.involvedInCases).length,
-        'Sr. Level': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'Sr. Level' && c.involvedInCases).length,
-        'Other': contactsWithCaseInvolvement.filter(c => c.contactLevel === 'Other' && c.involvedInCases).length,
-      };
+      // Count contacts by level - optimized single pass instead of multiple filters
+      const contactLevelCounts = { 'C-Level': 0, 'Sr. Level': 0, 'Other': 0 };
+      const caseInvolvedByLevel = { 'C-Level': 0, 'Sr. Level': 0, 'Other': 0 };
+      
+      contactsWithCaseInvolvement.forEach(c => {
+        contactLevelCounts[c.contactLevel] = (contactLevelCounts[c.contactLevel] || 0) + 1;
+        if (c.involvedInCases) {
+          caseInvolvedByLevel[c.contactLevel] = (caseInvolvedByLevel[c.contactLevel] || 0) + 1;
+        }
+      });
 
       // Enrich with comprehensive contact data from Salesforce and Apollo.io
       const linkedinData = {
@@ -2135,95 +2135,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
 
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
-      {/* Header with Logo */}
-      <header className="bg-lean-black px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-              {/* LD Logo */}
-              <img 
-                src={`/ld-logo-abbr-green.png?v=${window.getBuildVersion()}`}
-                alt="LeanData Logo" 
-                className="h-12 w-auto flex-shrink-0"
-                key={`logo-${window.getBuildVersion()}`}
-              />
-            <div className="text-left">
-              <h1 className="typography-heading text-[#f7f7f7] mb-1">
-                L.U.C.I.
-              </h1>
-              <p className="text-sm text-[#f7f7f7]">
-                LeanData Unified Customer Intelligence
-              </p>
-            </div>
-          </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/user');
-                    } else {
-                      window.location.href = '/user';
-                    }
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
-                  aria-label="Manage my accounts"
-                >
-                  My Accounts
-                </button>
-                <button
-                  onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/admin');
-                    } else {
-                      window.location.href = '/admin';
-                    }
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                  aria-label="Go to admin panel"
-                >
-                  Admin
-                </button>
-                <button
-                  onClick={() => setShowHelp(!showHelp)}
-                  className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all flex items-center gap-2"
-                  aria-label="Show help and information"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {showHelp ? 'Hide Help' : 'Help'}
-                </button>
-                <div className="flex items-center gap-4 bg-lean-black/50 px-4 py-2 rounded-lg">
-              <div className="text-right">
-                <p className="text-sm font-medium text-[#f7f7f7]">
-                  {user?.name || 'User'}
-                </p>
-                <p className="text-xs text-[#f7f7f7]">
-                  {user?.email}
-                </p>
-                {user?.role && (
-                  <p className="text-xs text-lean-green font-medium">
-                    {user.role}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => {
-                  if (onSignOut) {
-                    onSignOut();
-                  } else {
-                    window.google?.accounts?.id.disableAutoSelect();
-                    localStorage.removeItem('userInfo');
-                    window.location.reload();
-                  }
-                }}
-                className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all whitespace-nowrap"
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Global Header */}
+      <window.Header user={user} onSignOut={onSignOut} showHelp={showHelp} setShowHelp={setShowHelp} />
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-4xl mx-auto">

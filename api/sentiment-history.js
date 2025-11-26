@@ -67,29 +67,7 @@ module.exports = async function handler(req, res) {
       // Apply limit and offset
       query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
 
-      // Log query details for debugging
-      log('Fetching all analyses:', {
-        days,
-        daysAgo: daysAgo.toISOString(),
-        accountId,
-        cached,
-        limit,
-        offset,
-      });
-
-      // Execute the query
-      const { data: analyses, error } = await query;
-      
-      if (error) {
-        logError('Error fetching all analyses:', error);
-        return sendErrorResponse(res, new Error(`Failed to fetch analyses: ${error.message}`), 500, isProduction());
-      }
-      
-      log('Query executed successfully:', {
-        analysesFound: analyses?.length || 0,
-      });
-
-      // Get total count for pagination
+      // Build count query in parallel (same filters as main query)
       let countQuery = supabase
         .from('sentiment_history')
         .select('id', { count: 'exact', head: true })
@@ -103,10 +81,27 @@ module.exports = async function handler(req, res) {
         countQuery = countQuery.not('input_hash', 'is', null);
       }
 
-      const { count, error: countError } = await countQuery;
+      // Execute both queries in parallel for better performance
+      const [queryResult, countResult] = await Promise.all([
+        query,
+        countQuery
+      ]);
+
+      const { data: analyses, error } = queryResult;
+      
+      if (error) {
+        logError('Error fetching all analyses', error);
+        return sendErrorResponse(res, new Error(`Failed to fetch analyses: ${error.message}`), 500, isProduction());
+      }
+      
+      if (analyses && analyses.length > 0) {
+        log(`Fetched ${analyses.length} analyses`);
+      }
+
+      const { count, error: countError } = countResult;
 
       if (countError) {
-        logError('Error counting analyses:', countError);
+        logError('Error counting analyses', countError);
       }
 
       // Calculate statistics for admin view
@@ -258,7 +253,7 @@ module.exports = async function handler(req, res) {
     }
 
   } catch (error) {
-    logError('Error in sentiment-history function:', error);
+    logError('Error in sentiment-history', error);
     return sendErrorResponse(res, error, 500, isProduction());
   }
 }

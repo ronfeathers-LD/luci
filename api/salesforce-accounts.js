@@ -67,11 +67,7 @@ async function querySalesforceAccounts(conn, userId, userEmail, role, ownerOnly 
         } catch (error) {
           if (error.errorCode === 'INVALID_FIELD') {
             // Log which field is invalid for debugging
-            log('INVALID_FIELD error details:', {
-              message: error.message,
-              errorCode: error.errorCode,
-              query: ownerQuery.substring(0, 200) + '...',
-            });
+            logWarn('INVALID_FIELD error in Salesforce query', { errorCode: error.errorCode });
             
             // Check if error is about Type field
             const typeError = error.message && error.message.includes('Type');
@@ -413,18 +409,6 @@ async function syncAccountsToSupabase(supabase, sfdcAccounts, userId = null, cre
     
       // Log field values for debugging (always log first account to help diagnose issues)
       if (sfdcAccounts.length > 0 && sfdcAccounts.indexOf(sfdcAccount) === 0) {
-        log('Sample account fields from Salesforce:', {
-          Id: sfdcAccount.Id,
-          Name: sfdcAccount.Name,
-          'Employee_Band__c': sfdcAccount.Employee_Band__c,
-          'Expiring_Revenue__c': sfdcAccount.Expiring_Revenue__c,
-          'Expiring_ARR__c': sfdcAccount.Expiring_ARR__c,
-          'Account_Segment__c': sfdcAccount.Account_Segment__c,
-          'Account_Tier__c': sfdcAccount.Account_Tier__c,
-          'Mapped accountTier': accountTier,
-          'Mapped contractValue': contractValue,
-          'All available fields': Object.keys(sfdcAccount),
-        });
       }
     
     const accountData = {
@@ -790,19 +774,10 @@ module.exports = async function handler(req, res) {
           
           if (!needsRefresh) {
             useCached = true;
-            if (!isProduction()) {
-              log(`Using ${accounts.length} cached accounts (fresh)`);
-            }
-          } else {
-            if (!isProduction()) {
-              log(`Found ${accounts.length} cached accounts, but cache is stale`);
-            }
           }
-        } else {
-          log('No cached accounts found - will query Salesforce');
         }
       } catch (cacheError) {
-        logError('Error getting cached accounts:', cacheError);
+        logError('Error getting cached accounts', cacheError);
         // Continue - will try Salesforce or return empty
         accounts = [];
         needsRefresh = true;
@@ -819,14 +794,7 @@ module.exports = async function handler(req, res) {
     
     if (shouldTrySalesforce) {
       try {
-        if (!isProduction()) {
-          log('Attempting Salesforce authentication...');
-        }
         const sfdcAuth = await authenticateSalesforce(supabase);
-        
-        if (!isProduction()) {
-          log('Salesforce authenticated, querying accounts...');
-        }
         const sfdcAccounts = await querySalesforceAccounts(
           sfdcAuth.connection,
           user.id,
@@ -891,9 +859,6 @@ module.exports = async function handler(req, res) {
       }
     } else if (accounts.length > 0) {
       // We have cached accounts and don't need to refresh
-      if (!isProduction()) {
-        log(`Using ${accounts.length} cached accounts (stale but available)`);
-      }
       useCached = true;
     }
 

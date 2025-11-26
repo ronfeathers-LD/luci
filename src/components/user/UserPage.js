@@ -32,7 +32,7 @@ const UserPage = ({ user, onSignOut }) => {
         role: user.role || '',
       });
 
-      const response = await fetch(`/api/salesforce-accounts?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -48,6 +48,7 @@ const UserPage = ({ user, onSignOut }) => {
       setLoading(false);
     }
   }, [user]);
+
 
   // Load accounts on mount
   useEffect(() => {
@@ -70,7 +71,7 @@ const UserPage = ({ user, onSignOut }) => {
         userId: user?.id || '',
       });
 
-      const response = await fetch(`/api/salesforce-accounts?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -370,51 +371,24 @@ const UserPage = ({ user, onSignOut }) => {
   };
 
   return (
-    <div className="min-h-screen bg-lean-almost-white">
-      {/* Header */}
-      <header className="bg-lean-white border-b border-lean-black/20 px-4 sm:px-6 lg:px-8 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="typography-heading text-lean-black">My Accounts</h1>
-            <p className="text-sm text-lean-black-70 mt-1">Manage your cached Salesforce accounts</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/');
-                } else {
-                  window.location.href = '/';
-                }
-              }}
-              className="px-4 py-2 text-lean-black-70 hover:text-lean-black transition-colors"
-            >
-              Back to Dashboard
-            </button>
-            {user?.picture && (
-              <img
-                src={user.picture}
-                alt={user.name || 'User'}
-                className="w-8 h-8 rounded-full"
-              />
-            )}
-            <button
-              onClick={onSignOut}
-              className="px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-lean-almost-white flex flex-col">
+      {/* Global Header */}
+      <window.Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-6xl mx-auto">
+          {/* Page Title */}
+          <div className="mb-6">
+            <h1 className="typography-heading text-lean-black mb-2">My Accounts</h1>
+            <p className="text-sm text-lean-black-70">Manage your cached Salesforce accounts</p>
+          </div>
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
             <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
+
 
         {/* Add Account Section */}
         <div className="bg-lean-white rounded-lg shadow-lg p-6 mb-6">
@@ -643,6 +617,7 @@ const UserPage = ({ user, onSignOut }) => {
               </table>
             </div>
           )}
+        </div>
         </div>
       </main>
     </div>

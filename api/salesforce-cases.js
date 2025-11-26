@@ -16,11 +16,8 @@ const { MAX_REQUEST_SIZE, CACHE_TTL, API_LIMITS } = require('../lib/constants');
  */
 async function getCachedCases(supabase, salesforceAccountId) {
   if (!supabase || !salesforceAccountId) {
-    log('getCachedCases: Missing supabase or salesforceAccountId');
     return null;
   }
-
-  log(`getCachedCases: Looking up cached cases for account: ${salesforceAccountId}`);
   
   const { data: cases, error } = await supabase
     .from('cases')
@@ -30,16 +27,13 @@ async function getCachedCases(supabase, salesforceAccountId) {
       .limit(API_LIMITS.CASES_PER_ACCOUNT);
 
   if (error) {
-    logError('getCachedCases: Error querying cache:', error);
+    logError('Error querying cached cases', error);
     return null;
   }
 
   if (!cases || cases.length === 0) {
-    log(`getCachedCases: No cached cases found for account: ${salesforceAccountId}`);
     return null;
   }
-
-  log(`getCachedCases: Found ${cases.length} cached cases for account: ${salesforceAccountId}`);
 
   // Check if cache is fresh (use most recent last_synced_at)
   const mostRecentSync = cases.reduce((latest, current) => {
@@ -49,8 +43,6 @@ async function getCachedCases(supabase, salesforceAccountId) {
   }, null);
 
   const isFresh = isCacheFresh(mostRecentSync, CACHE_TTL.CASES);
-  
-  log(`getCachedCases: Cache freshness check - lastSync: ${mostRecentSync}, isFresh: ${isFresh}`);
 
   return {
     cases: cases,
@@ -77,15 +69,10 @@ async function querySalesforceCases(conn, salesforceAccountId) {
                      LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
   
   try {
-    log(`Querying Salesforce for cases with AccountId: ${salesforceAccountId}`);
     const result = await conn.query(caseQuery);
     const caseCount = result.records?.length || 0;
-    log(`Salesforce query returned ${caseCount} cases for account ${salesforceAccountId}`);
     
     if (caseCount === 0) {
-      // Log a warning if no cases found - this might be expected or might indicate an issue
-      log(`No cases found for account ${salesforceAccountId}. This could be normal if the account has no support cases.`);
-      
       // Try a simpler query without Contact.Name to see if that's the issue
       const simpleQuery = `SELECT Id, CaseNumber, Subject, Status, Priority, Type, Reason, Origin, CreatedDate, ClosedDate, Description, 
                            ContactEmail, ContactId
@@ -95,22 +82,40 @@ async function querySalesforceCases(conn, salesforceAccountId) {
                            LIMIT ${API_LIMITS.CASES_PER_ACCOUNT}`;
       
       try {
-        log(`Retrying with simpler query (without Contact.Name) for account ${salesforceAccountId}`);
         const simpleResult = await conn.query(simpleQuery);
         const simpleCount = simpleResult.records?.length || 0;
         if (simpleCount > 0) {
           log(`⚠️ Simpler query returned ${simpleCount} cases - Contact.Name field may be causing issues`);
-          // Enrich records with Contact.Name if available
-          for (const record of simpleResult.records) {
-            if (record.ContactId) {
-              try {
-                const contact = await conn.sobject('Contact').retrieve(record.ContactId, ['Name']);
-                record.Contact = { Name: contact.Name };
-              } catch (contactError) {
-                logError(`Could not fetch Contact.Name for ContactId ${record.ContactId}:`, contactError);
-                record.Contact = null;
+          // Enrich records with Contact.Name if available - parallelize lookups
+          const contactIds = simpleResult.records
+            .filter(record => record.ContactId)
+            .map(record => record.ContactId);
+          
+          if (contactIds.length > 0) {
+            // Fetch all contacts in parallel
+            const contactPromises = contactIds.map(contactId =>
+              conn.sobject('Contact').retrieve(contactId, ['Name'])
+                .then(contact => ({ contactId, contact }))
+                .catch(error => ({ contactId, error }))
+            );
+            
+            const contactResults = await Promise.all(contactPromises);
+            const contactMap = new Map();
+            contactResults.forEach(({ contactId, contact, error }) => {
+              if (error) {
+                logError(`Could not fetch Contact.Name for ContactId ${contactId}`, error);
+                contactMap.set(contactId, null);
+              } else {
+                contactMap.set(contactId, { Name: contact.Name });
               }
-            }
+            });
+            
+            // Attach Contact data to records
+            simpleResult.records.forEach(record => {
+              if (record.ContactId) {
+                record.Contact = contactMap.get(record.ContactId) || null;
+              }
+            });
           }
           return simpleResult.records || [];
         }
@@ -144,18 +149,37 @@ async function querySalesforceCases(conn, salesforceAccountId) {
       const fallbackResult = await conn.query(fallbackQuery);
       log(`Fallback query returned ${fallbackResult.records?.length || 0} cases`);
       
-      // Try to enrich with Contact.Name if ContactId exists
+      // Try to enrich with Contact.Name if ContactId exists - parallelize lookups
       if (fallbackResult.records && fallbackResult.records.length > 0) {
-        for (const record of fallbackResult.records) {
-          if (record.ContactId) {
-            try {
-              const contact = await conn.sobject('Contact').retrieve(record.ContactId, ['Name']);
-              record.Contact = { Name: contact.Name };
-            } catch (contactError) {
-              logError(`Could not fetch Contact.Name for ContactId ${record.ContactId}:`, contactError);
-              record.Contact = null;
+        const contactIds = fallbackResult.records
+          .filter(record => record.ContactId)
+          .map(record => record.ContactId);
+        
+        if (contactIds.length > 0) {
+          // Fetch all contacts in parallel
+          const contactPromises = contactIds.map(contactId =>
+            conn.sobject('Contact').retrieve(contactId, ['Name'])
+              .then(contact => ({ contactId, contact }))
+              .catch(error => ({ contactId, error }))
+          );
+          
+          const contactResults = await Promise.all(contactPromises);
+          const contactMap = new Map();
+          contactResults.forEach(({ contactId, contact, error }) => {
+            if (error) {
+              logError(`Could not fetch Contact.Name for ContactId ${contactId}`, error);
+              contactMap.set(contactId, null);
+            } else {
+              contactMap.set(contactId, { Name: contact.Name });
             }
-          }
+          });
+          
+          // Attach Contact data to records
+          fallbackResult.records.forEach(record => {
+            if (record.ContactId) {
+              record.Contact = contactMap.get(record.ContactId) || null;
+            }
+          });
         }
       }
       
@@ -296,8 +320,6 @@ module.exports = async function handler(req, res) {
       const cached = await getCachedCases(supabase, salesforceAccountId);
       
       if (cached && cached.isFresh) {
-        log(`Using ${cached.cases.length} cached cases for account: ${salesforceAccountId}`);
-        
         const mappedCases = cached.cases.map(c => ({
           id: c.salesforce_id,
           caseNumber: c.case_number,
@@ -315,58 +337,48 @@ module.exports = async function handler(req, res) {
           contactName: c.contact_name,
         }));
         
-        log(`Mapped ${mappedCases.length} cases from cache for response`);
+        log(`Returning ${mappedCases.length} cached cases for account ${salesforceAccountId}`);
         
         return sendSuccessResponse(res, {
           cases: mappedCases,
           total: cached.cases.length,
           cached: true,
           lastSyncedAt: cached.lastSyncedAt,
-          _debug: !isProduction() ? {
-            cacheLookup: true,
-            rawCasesCount: cached.cases.length,
-            mappedCasesCount: mappedCases.length,
-            salesforceAccountId: salesforceAccountId,
-          } : undefined,
         });
       } else if (cached && !cached.isFresh) {
-        log(`Cache found but stale for account: ${salesforceAccountId}, will refresh from Salesforce`);
-      } else {
-        log(`No cache found for account: ${salesforceAccountId}`);
+        log(`Cache stale for account ${salesforceAccountId}, refreshing from Salesforce`);
       }
     }
 
     // Cache is stale or missing - query Salesforce
     if (shouldForceRefresh) {
-      log(`Force refresh requested for cases, querying Salesforce`);
-    } else {
-      log(`Cache stale or missing for cases, querying Salesforce`);
+      log(`Force refresh requested, querying Salesforce for account ${salesforceAccountId}`);
     }
 
     const sfdcAuth = await authenticateSalesforce(supabase);
-    log(`Authenticated with Salesforce, querying cases for account: ${salesforceAccountId}`);
     const sfdcCases = await querySalesforceCases(sfdcAuth.connection, salesforceAccountId);
-    log(`Retrieved ${sfdcCases.length} cases from Salesforce for account: ${salesforceAccountId}`);
+    
+    if (sfdcCases.length > 0) {
+      log(`Retrieved ${sfdcCases.length} cases from Salesforce`);
+    }
 
     // Always look up account UUID from Supabase using salesforce_account_id
     // The accountId parameter might be a Salesforce ID string, not a UUID
+    // Optimize: Try both lookups in parallel if accountId looks like UUID, otherwise just lookup by salesforce_id
     let accountUuid = null;
     
-    // First, try to use accountId if it looks like a UUID (has dashes)
-    if (accountId && accountId.includes('-') && accountId.length === 36) {
-      // It's likely a UUID, verify it exists
-      const { data: account } = await supabase
-        .from('accounts')
-        .select('id')
-        .eq('id', accountId)
-        .single();
-      if (account) {
-        accountUuid = account.id;
-      }
-    }
+    const isLikelyUUID = accountId && accountId.includes('-') && accountId.length === 36;
     
-    // If we don't have a valid UUID yet, look it up by salesforce_id
-    if (!accountUuid) {
+    if (isLikelyUUID) {
+      // Try both lookups in parallel for faster resolution
+      const [uuidResult, salesforceIdResult] = await Promise.all([
+        supabase.from('accounts').select('id').eq('id', accountId).single(),
+        supabase.from('accounts').select('id').eq('salesforce_id', salesforceAccountId).single()
+      ]);
+      
+      accountUuid = uuidResult.data?.id || salesforceIdResult.data?.id || null;
+    } else {
+      // Just lookup by salesforce_id
       const { data: account } = await supabase
         .from('accounts')
         .select('id')
@@ -386,7 +398,7 @@ module.exports = async function handler(req, res) {
 
     // Sync cases to Supabase cache
     const syncedCases = await syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, accountUuid);
-    log(`Synced ${syncedCases.length} cases to Supabase cache for account: ${salesforceAccountId}`);
+    log(`Synced ${syncedCases.length} cases to cache`);
 
     const cases = syncedCases.map(c => ({
       id: c.salesforce_id,
@@ -405,7 +417,7 @@ module.exports = async function handler(req, res) {
       contactName: c.contact_name,
     }));
 
-    log(`Returning ${cases.length} cases from Salesforce for account: ${salesforceAccountId}`);
+    log(`Returning ${cases.length} cases`);
     
     return sendSuccessResponse(res, {
       cases: cases,

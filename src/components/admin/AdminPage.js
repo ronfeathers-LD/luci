@@ -1,7 +1,7 @@
 // Admin Page Component
 const { useState, useEffect } = React;
 
-const AdminPage = ({ user }) => {
+const AdminPage = ({ user, onSignOut }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -22,33 +22,21 @@ const AdminPage = ({ user }) => {
   }
 
   return (
-    <div className="min-h-screen bg-lean-almost-white">
-      {/* Header */}
-      <header className="bg-lean-white border-b border-lean-black/20 px-4 sm:px-6 lg:px-8 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="typography-heading text-lean-black">Admin Panel</h1>
-            <p className="text-sm text-lean-black-70 mt-1">Manage system settings and configurations</p>
-          </div>
-          <button
-            onClick={() => {
-              if (window.navigate) {
-                window.navigate('/');
-              } else {
-                window.location.href = '/';
-              }
-            }}
-            className="px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
-          >
-            Back to Dashboard
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-lean-almost-white flex flex-col">
+      {/* Global Header */}
+      <window.Header user={user} onSignOut={onSignOut || (() => {})} />
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-lean-white rounded-lg shadow-lg p-8">
-          <h2 className="text-2xl font-bold text-lean-black mb-6">Admin Dashboard</h2>
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-6xl mx-auto">
+          {/* Page Title */}
+          <div className="mb-6">
+            <h1 className="typography-heading text-lean-black mb-2">Admin Panel</h1>
+            <p className="text-sm text-lean-black-70">Manage system settings and configurations</p>
+          </div>
+          
+          <div className="bg-lean-white rounded-lg shadow-lg p-8">
+            <h2 className="text-2xl font-bold text-lean-black mb-6">Admin Dashboard</h2>
           
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
@@ -128,6 +116,7 @@ const AdminPage = ({ user }) => {
                 View All Analyses
               </button>
             </div>
+          </div>
           </div>
         </div>
       </main>

@@ -190,6 +190,10 @@ const App = () => {
     return <window.UserPage user={user} onSignOut={handleSignOut} />;
   }
 
+  if (currentPath === '/calendar') {
+    return <window.CalendarPage user={user} onSignOut={handleSignOut} />;
+  }
+
   // Default route - show SentimentAnalyzer
   return <window.SentimentAnalyzer user={user} onSignOut={handleSignOut} />;
 };

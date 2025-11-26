@@ -31,13 +31,16 @@ try {
   console.log('📦 Compiling JSX components...');
   const components = [
     { src: 'src/lib/utils.js', out: 'dist/utils.js' },
+    { src: 'src/lib/request-deduplication.js', out: 'dist/request-deduplication.js' },
     { src: 'src/components/shared/Icons.js', out: 'dist/Icons.js' },
     { src: 'src/components/shared/ErrorBoundary.js', out: 'dist/ErrorBoundary.js' },
+    { src: 'src/components/shared/Header.js', out: 'dist/Header.js' },
     { src: 'src/components/auth/LoginPage.js', out: 'dist/LoginPage.js' },
     { src: 'src/components/admin/AdminPage.js', out: 'dist/AdminPage.js' },
     { src: 'src/components/admin/AllAnalysesPage.js', out: 'dist/AllAnalysesPage.js' },
     { src: 'src/components/admin/RoleManagementPage.js', out: 'dist/RoleManagementPage.js' },
     { src: 'src/components/user/UserPage.js', out: 'dist/UserPage.js' },
+    { src: 'src/components/calendar/CalendarPage.js', out: 'dist/CalendarPage.js' },
     { src: 'src/components/SentimentAnalyzer.js', out: 'dist/SentimentAnalyzer.js' },
     { src: 'src/lib/router.js', out: 'dist/router.js' },
     { src: 'src/App.js', out: 'dist/App.js' },

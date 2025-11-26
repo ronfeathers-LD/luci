@@ -44,7 +44,6 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
   
   const result = await conn.query(query);
   const contactCount = result.records?.length || 0;
-  log(`Query returned ${contactCount} contacts for account ${salesforceAccountId}`);
   
   // Filter out any contacts with Unqualified status (in case query didn't filter properly)
   const filteredContacts = (result.records || []).filter(contact => {
@@ -52,14 +51,12 @@ async function querySalesforceContacts(conn, salesforceAccountId) {
     return status !== 'Unqualified';
   });
   
-  if (filteredContacts.length !== result.records.length) {
-    log(`Filtered out ${result.records.length - filteredContacts.length} Unqualified contacts`);
+  if (filteredContacts.length > 0) {
+    log(`Retrieved ${filteredContacts.length} contacts from Salesforce`);
   }
   
-  if (contactCount === 0) {
-    log(`Account ${salesforceAccountId} has no contacts in Salesforce. This is normal - not all accounts have contacts.`);
-  } else if (filteredContacts.length === 0 && contactCount > 0) {
-    log(`Warning: All ${contactCount} contacts for account ${salesforceAccountId} were filtered out (likely all have Contact_Status__c = 'Unqualified')`);
+  if (filteredContacts.length === 0 && contactCount > 0) {
+    logWarn(`All ${contactCount} contacts for account ${salesforceAccountId} were filtered out (likely all have Contact_Status__c = 'Unqualified')`);
   }
   
   return filteredContacts;
@@ -267,7 +264,7 @@ module.exports = async function handler(req, res) {
       const cached = await getCachedContacts(supabase, salesforceAccountId);
       
       if (cached && cached.isFresh) {
-        log(`Using ${cached.contacts.length} cached contacts for account: ${salesforceAccountId}`);
+        log(`Returning ${cached.contacts.length} cached contacts`);
         
         return sendSuccessResponse(res, {
           contacts: cached.contacts.map(c => ({
@@ -292,11 +289,6 @@ module.exports = async function handler(req, res) {
     }
 
     // Cache is stale or missing - query Salesforce
-    if (shouldForceRefresh) {
-      log(`Force refresh requested for contacts, querying Salesforce`);
-    } else {
-      log(`Cache stale or missing for contacts, querying Salesforce`);
-    }
 
     try {
       const sfdcAuth = await authenticateSalesforce(supabase);

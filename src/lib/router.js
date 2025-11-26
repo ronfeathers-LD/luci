@@ -3,8 +3,9 @@
 if (!window.navigate) {
   window.navigate = (path) => {
     window.history.pushState({}, '', path);
-    // Dispatch a custom event to trigger re-render
+    // Dispatch both popstate and custom locationchange events to trigger re-render
     window.dispatchEvent(new PopStateEvent('popstate'));
+    window.dispatchEvent(new Event('locationchange'));
   };
 }
 

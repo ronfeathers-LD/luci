@@ -23,6 +23,43 @@ module.exports = async function handler(req, res) {
     return sendErrorResponse(res, new Error('Method not allowed'), 405);
   }
 
+  // ENRICHMENT DISABLED: Apollo.io license has expired
+  // Return early to prevent any API calls
+  const { contacts } = req.method === 'POST' ? req.body : req.query;
+  const isBulkRequest = Array.isArray(contacts) && contacts.length > 0;
+
+  if (isBulkRequest) {
+    // Return empty results for bulk requests
+    return sendSuccessResponse(res, {
+      success: true,
+      results: contacts.map(contact => ({
+        contact,
+        success: false,
+        error: 'Apollo.io enrichment is currently disabled (license expired)',
+        profile: null,
+        skipped: true,
+      })),
+      total: contacts.length,
+      enriched: 0,
+      cached: 0,
+      failed: 0,
+      skipped: contacts.length,
+      creditsExhausted: true,
+      message: 'Apollo.io enrichment is currently disabled. Analysis will continue with available Salesforce data.',
+    });
+  } else {
+    // Single contact enrichment - return disabled message
+    return sendSuccessResponse(res, {
+      success: false,
+      error: 'Apollo.io enrichment is currently disabled (license expired)',
+      profile: null,
+      skipped: true,
+      message: 'Apollo.io enrichment is currently disabled. Analysis will continue with available Salesforce data.',
+    });
+  }
+
+  // Code below is disabled - uncomment when license is renewed
+  /*
   try {
     const supabase = getSupabaseClient();
     
@@ -47,17 +84,21 @@ module.exports = async function handler(req, res) {
         log(`Batch size ${contacts.length} exceeds max ${MAX_BATCH_SIZE}, processing in chunks`);
       }
 
-      // Check cache for each contact (unless force refresh)
+      // Check cache for each contact (unless force refresh) - batch queries for performance
       const contactsToEnrich = [];
       const cachedResults = [];
 
-      for (const contact of contacts) {
-        const contactId = contact.contactId || contact.id;
-        const salesforceContactId = contact.salesforceContactId || contact.salesforce_id;
-        const linkedinURL = contact.linkedinURL || contact.linkedin_url;
+      if (!shouldForceRefresh) {
+        // Build cache queries in parallel
+        const cacheQueries = contacts.map(contact => {
+          const contactId = contact.contactId || contact.id;
+          const salesforceContactId = contact.salesforceContactId || contact.salesforce_id;
+          const linkedinURL = contact.linkedinURL || contact.linkedin_url;
 
-        // Check cache if we have any identifier (contactId, salesforceContactId, or linkedinURL)
-        if (!shouldForceRefresh && (contactId || salesforceContactId || linkedinURL)) {
+          if (!contactId && !salesforceContactId && !linkedinURL) {
+            return { contact, promise: Promise.resolve(null) };
+          }
+
           let cacheQuery = supabase
             .from('linkedin_profiles')
             .select('*')
@@ -72,8 +113,18 @@ module.exports = async function handler(req, res) {
             cacheQuery = cacheQuery.eq('linkedin_url', linkedinURL);
           }
 
-          const { data: existingProfile } = await cacheQuery.limit(1).maybeSingle();
+          return {
+            contact,
+            promise: cacheQuery.limit(1).maybeSingle().then(({ data }) => data)
+          };
+        });
 
+        // Execute all cache queries in parallel
+        const cacheResults = await Promise.all(cacheQueries.map(q => q.promise));
+
+        // Process results
+        cacheQueries.forEach(({ contact }, index) => {
+          const existingProfile = cacheResults[index];
           if (existingProfile && isCacheFresh(existingProfile.last_synced_at, CACHE_TTL.CONTACTS)) {
             cachedResults.push({
               contact,
@@ -82,11 +133,13 @@ module.exports = async function handler(req, res) {
               cached: true,
               source: 'apollo',
             });
-            continue;
+          } else {
+            contactsToEnrich.push(contact);
           }
-        }
-
-        contactsToEnrich.push(contact);
+        });
+      } else {
+        // Force refresh - skip cache checks
+        contactsToEnrich.push(...contacts);
       }
 
       log(`Processing ${contactsToEnrich.length} contacts for enrichment (${cachedResults.length} from cache)`);
@@ -494,4 +547,5 @@ module.exports = async function handler(req, res) {
       results: null,
     });
   }
+  */
 }

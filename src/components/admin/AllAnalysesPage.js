@@ -1,5 +1,5 @@
 // All Analyses Page Component - Shows all cached sentiment analyses
-const { useState, useEffect, useCallback } = React;
+const { useState, useEffect, useCallback, useMemo } = React;
 
 const AllAnalysesPage = ({ user, onSignOut }) => {
   const [analyses, setAnalyses] = useState([]);
@@ -31,7 +31,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         params.append('cached', 'true');
       }
       
-      const response = await fetch(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch analyses');
@@ -43,7 +43,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
       setStats(data.stats || null);
       setPagination(prev => ({ ...prev, total: data.pagination?.total || 0 }));
       
-      // Group analyses by account
+      // Group analyses by account - optimized single pass
       const grouped = {};
       fetchedAnalyses.forEach(analysis => {
         const accountKey = analysis.account_id || analysis.salesforce_account_id || 'unknown';
@@ -60,15 +60,19 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         grouped[accountKey].analyses.push(analysis);
       });
       
-      // Sort analyses within each group by date (newest first)
+      // Sort analyses within each group by date (newest first) - optimized
+      const sortedGrouped = {};
       Object.keys(grouped).forEach(key => {
-        grouped[key].analyses.sort((a, b) => new Date(b.analyzed_at) - new Date(a.analyzed_at));
+        sortedGrouped[key] = {
+          ...grouped[key],
+          analyses: grouped[key].analyses.sort((a, b) => new Date(b.analyzed_at) - new Date(a.analyzed_at))
+        };
       });
       
-      setGroupedAnalyses(grouped);
+      setGroupedAnalyses(sortedGrouped);
       
       // Auto-expand all accounts by default
-      const accountKeys = Object.keys(grouped);
+      const accountKeys = Object.keys(sortedGrouped);
       setExpandedAccounts(new Set(accountKeys));
     } catch (err) {
       window.logError('Error fetching analyses:', err);
@@ -128,39 +132,16 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
 
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
-      {/* Header */}
-      <header className="bg-lean-black px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img 
-              src={`/ld-logo-abbr-green.png?v=${window.getBuildVersion()}`}
-              alt="LeanData Logo" 
-              className="h-12 w-auto flex-shrink-0"
-            />
-            <div>
-              <h1 className="typography-heading text-[#f7f7f7] mb-1">All Sentiment Analyses</h1>
-              <p className="text-sm text-[#f7f7f7]">View all cached sentiment analysis results</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => window.navigate('/admin')}
-              className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-blue-600 rounded-lg hover:bg-blue-700 transition-all"
-            >
-              Back to Admin
-            </button>
-            <button
-              onClick={() => window.navigate('/')}
-              className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 transition-all"
-            >
-              Dashboard
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* Global Header */}
+      <window.Header user={user} onSignOut={onSignOut} />
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
+          {/* Page Title */}
+          <div className="mb-6">
+            <h1 className="typography-heading text-lean-black mb-2">All Sentiment Analyses</h1>
+            <p className="text-sm text-lean-black-70">View all cached sentiment analysis results</p>
+          </div>
           {/* Stats Cards */}
           {stats && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
