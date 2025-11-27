@@ -20,13 +20,14 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
         setError(null);
 
         const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?id=${analysisId}`);
+        const responseClone = response.clone();
         
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+          const errorData = await responseClone.json().catch(() => ({}));
           throw new Error(errorData.message || errorData.error || 'Failed to fetch analysis');
         }
 
-        const data = await response.json();
+        const data = await responseClone.json();
         setAnalysis(data.analysis);
       } catch (err) {
         window.logError('Error fetching sentiment analysis:', err);

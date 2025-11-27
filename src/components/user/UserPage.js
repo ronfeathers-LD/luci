@@ -33,13 +33,14 @@ const UserPage = ({ user, onSignOut }) => {
       });
 
       const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const responseClone = response.clone();
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || 'Failed to fetch accounts');
       }
 
-      const data = await response.json();
+      const data = await responseClone.json();
       setAccounts(data.accounts || []);
     } catch (err) {
       window.logError('Error fetching user accounts:', err);
@@ -72,13 +73,14 @@ const UserPage = ({ user, onSignOut }) => {
       });
 
       const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const responseClone = response.clone();
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || 'Failed to search accounts');
       }
 
-      const data = await response.json();
+      const data = await responseClone.json();
       
       // Filter out accounts already in user's list
       const existingAccountIds = new Set(accounts.map(acc => acc.salesforceId || acc.id));

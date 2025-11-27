@@ -353,9 +353,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
   const fetchCasesForAccount = useCallback(async (accountData) => {
     if (!accountData) {
       setCases([]);
-      return;
-    } {
-      setCases([]);
       setCasesLoading(false);
       setCasesLoadingFromCache(false);
       return;

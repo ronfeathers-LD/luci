@@ -248,12 +248,14 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         }),
       });
 
+      const responseClone = response.clone();
+      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.message || 'Failed to run sentiment analysis');
       }
 
-      const result = await response.json();
+      const result = await responseClone.json();
       
       // Wait a moment for the analysis to be saved, then refresh the list
       setTimeout(() => {

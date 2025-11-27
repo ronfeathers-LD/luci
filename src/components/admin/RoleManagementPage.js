@@ -16,13 +16,14 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       setError(null);
 
       const response = await fetch('/api/roles?userRoles=true');
+      const responseClone = response.clone();
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || 'Failed to fetch users');
       }
 
-      const data = await response.json();
+      const data = await responseClone.json();
       setUsers(data.users || []);
     } catch (err) {
       window.logError('Error fetching users:', err);
