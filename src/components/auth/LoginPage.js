@@ -51,7 +51,7 @@ const LoginPage = ({ onSignIn }) => {
             client_id: GOOGLE_CLIENT_ID,
             callback: handleCredentialResponse,
           });
-          window.log('Google Sign-In initialized successfully');
+          // Google Sign-In initialized
           
           // Now try to render the button
           if (isMounted) {
@@ -100,7 +100,7 @@ const LoginPage = ({ onSignIn }) => {
               text: 'signin_with',
             }
           );
-          window.log('Google Sign-In button rendered successfully');
+          // Google Sign-In button rendered
           setIsLoading(false);
         } catch (err) {
           window.logError('Error rendering button:', err);

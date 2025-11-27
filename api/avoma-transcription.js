@@ -7,7 +7,7 @@
 
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { AvomaClient } = require('../lib/avoma-client');
-const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
+const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');
 const { MAX_REQUEST_SIZE, CACHE_TTL } = require('../lib/constants');
 const { isCacheFresh } = require('../lib/cache-helpers');
 
@@ -210,15 +210,135 @@ module.exports = async function handler(req, res) {
     }
 
     // Get parameters
-    const { customerIdentifier, salesforceAccountId, meetingUuid, forceRefresh } = req.method === 'POST' 
+    const { customerIdentifier, salesforceAccountId, meetingUuid, forceRefresh, accountId, source } = req.method === 'POST' 
       ? req.body 
       : req.query;
 
+    // Handle account transcriptions list (cache-only, returns all transcriptions for account)
+    // This is the merged functionality from account-transcriptions.js
+    // If source=cache OR (accountId/salesforceAccountId provided without customerIdentifier/meetingUuid)
+    const isAccountTranscriptionsRequest = source === 'cache' || 
+      ((accountId || salesforceAccountId) && !customerIdentifier && !meetingUuid);
+    
+    if (isAccountTranscriptionsRequest) {
+      const lookupAccountId = accountId || salesforceAccountId;
+      
+      if (!lookupAccountId) {
+        return sendErrorResponse(res, new Error('Missing required parameter: accountId or salesforceAccountId'), 400);
+      }
+
+      // Build query
+      let query = supabase
+        .from('transcriptions')
+        .select('*')
+        .order('meeting_date', { ascending: false });
+
+      // Filter by salesforce_account_id or account_id
+      if (salesforceAccountId || (accountId && (!accountId.includes('-') || accountId.length !== 36))) {
+        // Assume it's a Salesforce ID
+        query = query.eq('salesforce_account_id', lookupAccountId);
+      } else if (accountId && accountId.includes('-') && accountId.length === 36) {
+        // It's a UUID
+        query = query.eq('account_id', accountId);
+      }
+
+      const { data: transcriptions, error } = await query;
+
+      if (error) {
+        logError('Error fetching transcriptions:', error);
+        return sendErrorResponse(res, new Error('Failed to fetch transcriptions'), 500);
+      }
+
+      // Map transcriptions to response format
+      const mappedTranscriptions = (transcriptions || []).map(t => ({
+        id: t.id,
+        avoma_meeting_uuid: t.avoma_meeting_uuid,
+        transcription: t.transcription_text,
+        speakers: t.speakers,
+        meeting: {
+          subject: t.meeting_subject,
+          meeting_date: t.meeting_date,
+          duration: t.meeting_duration,
+          url: t.meeting_url,
+          attendees: t.attendees,
+        },
+        last_synced_at: t.last_synced_at,
+        cached: true,
+      }));
+
+      return sendSuccessResponse(res, {
+        transcriptions: mappedTranscriptions,
+        total: mappedTranscriptions.length,
+      });
+    }
+
+    // Original functionality: fetch single transcription (from API or cache)
     if (!customerIdentifier && !salesforceAccountId && !meetingUuid) {
       return sendErrorResponse(res, new Error('Missing required parameter: customerIdentifier, salesforceAccountId, or meetingUuid'), 400);
     }
 
     const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
+
+    // Handle bulk re-sync: when forceRefresh is true and we have salesforceAccountId, fetch ALL meetings
+    if (shouldForceRefresh && salesforceAccountId && !meetingUuid) {
+      // Get Avoma config
+      const avomaConfig = await getAvomaConfig(supabase);
+      const avomaClient = new AvomaClient(avomaConfig.api_key, avomaConfig.api_url);
+
+      // Search for all meetings
+      const searchResult = await avomaClient.searchMeetings(customerIdentifier || '', 50, salesforceAccountId);
+      const allMeetings = searchResult.results || searchResult.calls || [];
+      const readyMeetings = allMeetings.filter(m => m.transcript_ready && (m.transcription_uuid || m.uuid || m.id));
+
+      if (readyMeetings.length === 0) {
+        return sendSuccessResponse(res, {
+          transcription: '',
+          meetingCounts: {
+            total: allMeetings.length,
+            ready: 0,
+          },
+          warning: 'No meetings with ready transcripts found for this account',
+          synced: 0,
+        });
+      }
+
+      // Fetch and cache all ready meetings
+      let syncedCount = 0;
+      let errors = [];
+
+      for (const meeting of readyMeetings) {
+        try {
+          const meetingUuid = meeting.uuid || meeting.id || meeting.transcription_uuid;
+          if (!meetingUuid) continue;
+
+          const transcriptionData = await fetchFromAvoma(avomaClient, meetingUuid);
+          
+          // Cache the transcription
+          await cacheTranscription(
+            supabase,
+            transcriptionData,
+            customerIdentifier || '',
+            salesforceAccountId
+          );
+          
+          syncedCount++;
+        } catch (error) {
+          logError(`Error syncing meeting ${meeting.uuid || meeting.id}:`, error);
+          errors.push(error.message);
+        }
+      }
+
+      return sendSuccessResponse(res, {
+        transcription: '', // Not returning single transcription for bulk sync
+        meetingCounts: {
+          total: allMeetings.length,
+          ready: readyMeetings.length,
+        },
+        synced: syncedCount,
+        errors: errors.length > 0 ? errors : undefined,
+        message: `Successfully synced ${syncedCount} of ${readyMeetings.length} ready meetings`,
+      });
+    }
 
     // Check cache first (unless force refresh)
     if (!shouldForceRefresh && !meetingUuid) {

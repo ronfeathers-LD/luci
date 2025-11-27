@@ -31,7 +31,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         params.append('cached', 'true');
       }
       
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch analyses');

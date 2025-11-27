@@ -8,7 +8,7 @@
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
 const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');
-const { getUserRoles } = require('./user-roles');
+const { getUserRoles } = require('./roles');
 
 module.exports = async function handler(req, res) {
   // Handle preflight requests

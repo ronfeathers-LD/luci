@@ -20,8 +20,9 @@ const CalendarPage = ({ user, onSignOut }) => {
 
     try {
       const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar-auth?action=status&userId=${user.id}`);
+      const responseClone = response.clone();
       if (response.ok) {
-        const data = await response.json();
+        const data = await responseClone.json();
         setCalendarConnected(data.connected || false);
         setCalendarConfigured(data.configured !== false);
       } else {
@@ -59,14 +60,9 @@ const CalendarPage = ({ user, onSignOut }) => {
     }
 
     try {
-      const response = await fetch('/api/google-calendar-auth', {
+      // Use query param for DELETE requests (more reliable than body in some environments)
+      const response = await fetch(`/api/google-calendar-auth?userId=${encodeURIComponent(user.id)}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: user.id,
-        }),
       });
 
       if (!response.ok) {
@@ -94,49 +90,47 @@ const CalendarPage = ({ user, onSignOut }) => {
       setError(null);
       const url = `/api/google-calendar-events?userId=${user.id}&days=7${forceRefresh ? '&forceRefresh=true' : ''}`;
       const response = await (window.deduplicatedFetch || fetch)(url);
+      const responseClone = response.clone();
       
       if (!response.ok) {
         if (response.status === 401) {
           setCalendarConnected(false);
           return;
         }
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || 'Failed to fetch meetings');
       }
 
-      const data = await response.json();
+      const data = await responseClone.json();
       const allEvents = data.events || [];
       
-      // Filter to only show meetings with external attendees who are known contacts
+      // Filter to only show meetings with matched accounts
+      // We'll show any event that has matched accounts, regardless of how they matched
       const userEmail = user.email?.toLowerCase();
       const filteredEvents = allEvents.filter(({ event, matchedAccounts }) => {
-        // Must have matched accounts (meaning external attendees matched known contacts)
+        // Must have matched accounts
         if (!matchedAccounts || matchedAccounts.length === 0) {
           return false;
         }
         
-        // Check if there are external attendees
-        if (!event.attendees || !Array.isArray(event.attendees)) {
-          return false;
+        // If there are attendees, check if any are external (not the user)
+        if (event.attendees && Array.isArray(event.attendees)) {
+          const hasExternalAttendee = event.attendees.some(attendee => {
+            if (!attendee.email) return false;
+            const attendeeEmail = attendee.email.toLowerCase();
+            // Skip if this is the user's email
+            return !(userEmail && attendeeEmail === userEmail);
+          });
+          
+          // If there are external attendees, show the event
+          if (hasExternalAttendee) {
+            return true;
+          }
         }
         
-        // Check if any attendee is external (not the user) and matches a contact
-        const hasExternalAttendeeMatch = event.attendees.some(attendee => {
-          if (!attendee.email) return false;
-          const attendeeEmail = attendee.email.toLowerCase();
-          
-          // Skip if this is the user's email
-          if (userEmail && attendeeEmail === userEmail) {
-            return false;
-          }
-          
-          // Check if this attendee email matches any of the matched accounts
-          return matchedAccounts.some(account => 
-            account.matchReason && account.matchReason.includes(attendeeEmail)
-          );
-        });
-        
-        return hasExternalAttendeeMatch;
+        // Also show events matched by account name even if no external attendees
+        // (in case the account name was found in title/description)
+        return true;
       });
       
       setUpcomingMeetings(filteredEvents);
@@ -475,14 +469,25 @@ const CalendarPage = ({ user, onSignOut }) => {
                                                 Accounts to Research:
                                               </p>
                                               <div className="flex flex-wrap gap-2">
-                                                {matchedAccounts.map((account) => (
-                                                  <span
-                                                    key={account.id}
-                                                    className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-lean-green-10 text-lean-green border border-lean-green/20"
-                                                  >
-                                                    {account.name}
-                                                  </span>
-                                                ))}
+                                                {matchedAccounts.map((account) => {
+                                                  // Use salesforce_id (snake_case) from matcher, fallback to salesforceId (camelCase) or id
+                                                  const accountId = account.salesforce_id || account.salesforceId || account.id;
+                                                  return (
+                                                    <button
+                                                      key={account.id}
+                                                      onClick={() => {
+                                                        if (window.navigate) {
+                                                          window.navigate(`/account/${accountId}/data`);
+                                                        } else {
+                                                          window.location.href = `/account/${accountId}/data`;
+                                                        }
+                                                      }}
+                                                      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-lean-green-10 text-lean-green border border-lean-green/20 hover:bg-lean-green hover:text-lean-white transition-colors cursor-pointer"
+                                                    >
+                                                      {account.name}
+                                                    </button>
+                                                  );
+                                                })}
                                               </div>
                                             </div>
                                           )}

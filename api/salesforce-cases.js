@@ -337,8 +337,6 @@ module.exports = async function handler(req, res) {
           contactName: c.contact_name,
         }));
         
-        log(`Returning ${mappedCases.length} cached cases for account ${salesforceAccountId}`);
-        
         return sendSuccessResponse(res, {
           cases: mappedCases,
           total: cached.cases.length,
@@ -387,18 +385,8 @@ module.exports = async function handler(req, res) {
       accountUuid = account?.id || null;
     }
 
-    // Log if no cases were returned from Salesforce
-    if (sfdcCases.length === 0) {
-      log(`⚠️ No cases returned from Salesforce for account ${salesforceAccountId}. This could mean:
-        - The account has no support cases (normal)
-        - The query failed silently (check Salesforce logs)
-        - There's a permission issue accessing Case records
-        - The AccountId might be incorrect`);
-    }
-
     // Sync cases to Supabase cache
     const syncedCases = await syncCasesToSupabase(supabase, sfdcCases, salesforceAccountId, accountUuid);
-    log(`Synced ${syncedCases.length} cases to cache`);
 
     const cases = syncedCases.map(c => ({
       id: c.salesforce_id,
@@ -416,8 +404,6 @@ module.exports = async function handler(req, res) {
       contactId: c.contact_id,
       contactName: c.contact_name,
     }));
-
-    log(`Returning ${cases.length} cases`);
     
     return sendSuccessResponse(res, {
       cases: cases,

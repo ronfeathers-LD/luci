@@ -7,10 +7,8 @@ const analytics = {
     if (window.isProduction) {
       // In production, send to analytics service
       // Example: gtag('event', event, data);
-      window.log('Analytics:', event, data);
-    } else {
-      window.log('Analytics (dev):', event, data);
     }
+    // Dev logging removed for cleaner console
   },
   pageView: (page) => {
     analytics.track('page_view', { page });
@@ -188,6 +186,18 @@ const App = () => {
 
   if (currentPath === '/user') {
     return <window.UserPage user={user} onSignOut={handleSignOut} />;
+  }
+
+  // Account data page - /account/:accountId/data
+  if (currentPath.startsWith('/account/') && currentPath.endsWith('/data')) {
+    const accountId = currentPath.replace('/account/', '').replace('/data', '');
+    return <window.AccountDataPage user={user} onSignOut={handleSignOut} accountId={accountId} />;
+  }
+
+  // Sentiment analysis detail page - /sentiment/:id
+  if (currentPath.startsWith('/sentiment/')) {
+    const analysisId = currentPath.replace('/sentiment/', '');
+    return <window.SentimentDetailPage user={user} onSignOut={handleSignOut} analysisId={analysisId} />;
   }
 
   if (currentPath === '/calendar') {

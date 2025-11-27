@@ -577,7 +577,19 @@ const UserPage = ({ user, onSignOut }) => {
                         />
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-medium text-lean-black">{account.name}</div>
+                        <button
+                          onClick={() => {
+                            const accountId = account.salesforceId || account.id;
+                            if (window.navigate) {
+                              window.navigate(`/account/${accountId}/data`);
+                            } else {
+                              window.location.href = `/account/${accountId}/data`;
+                            }
+                          }}
+                          className="font-medium text-lean-black text-left hover:text-lean-green hover:underline"
+                        >
+                          {account.name}
+                        </button>
                         {account.salesforceId && (
                           <div className="text-xs text-lean-black-60 mt-1">ID: {account.salesforceId}</div>
                         )}

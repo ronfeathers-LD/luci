@@ -1,7 +1,8 @@
 /**
- * Vercel Serverless Function for Fetching Historical Sentiment Data
+ * Vercel Serverless Function for Sentiment Analysis Data
  * 
  * Returns sentiment history for a given account, with optional filtering
+ * OR returns a single sentiment analysis by ID
  * Supports both single account view and admin "all analyses" view
  */
 
@@ -26,7 +27,48 @@ module.exports = async function handler(req, res) {
       return; // Response already sent
     }
 
-    const { accountId, salesforceAccountId, limit = '50', offset = '0', days = '365', all, cached } = req.query;
+    // Check if this is a request for a single analysis by ID
+    const { id, accountId, salesforceAccountId, limit = '50', offset = '0', days = '365', all, cached } = req.query;
+    
+    // SINGLE ANALYSIS BY ID
+    if (id) {
+      // Fetch the sentiment analysis with account and user info
+      const { data: analysis, error } = await supabase
+        .from('sentiment_history')
+        .select(`
+          *,
+          accounts:account_id (
+            id,
+            name,
+            salesforce_id
+          ),
+          users:user_id (
+            id,
+            email,
+            name
+          )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return sendErrorResponse(res, new Error('Sentiment analysis not found'), 404);
+        }
+        logError('Error fetching sentiment analysis:', error);
+        return sendErrorResponse(res, new Error(`Failed to fetch sentiment analysis: ${error.message}`), 500, isProduction());
+      }
+
+      if (!analysis) {
+        return sendErrorResponse(res, new Error('Sentiment analysis not found'), 404);
+      }
+
+      return sendSuccessResponse(res, {
+        analysis: analysis,
+      });
+    }
+
+    // HISTORY/ANALYSES LIST
     const isAdminView = all === 'true';
 
     // Calculate date filter
@@ -253,7 +295,8 @@ module.exports = async function handler(req, res) {
     }
 
   } catch (error) {
-    logError('Error in sentiment-history', error);
+    logError('Error in sentiment-analysis function:', error);
     return sendErrorResponse(res, error, 500, isProduction());
   }
-}
+};
+

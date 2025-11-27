@@ -84,27 +84,40 @@ module.exports = async function handler(req, res) {
 
           if (allFresh) {
             // Convert cached events to Google Calendar API format
-            events = cachedEvents.map(event => ({
-              id: event.event_id,
-              summary: event.summary,
-              description: event.description,
-              start: {
-                dateTime: event.start_time,
-                date: event.start_time,
-              },
-              end: {
-                dateTime: event.end_time,
-                date: event.end_time,
-              },
-              location: event.location,
-              attendees: event.attendees,
-              organizer: event.organizer_email ? {
-                email: event.organizer_email,
-                displayName: event.organizer_name,
-              } : null,
-              conferenceData: event.conference_data,
-              htmlLink: event.html_link,
-            }));
+            events = cachedEvents.map(event => {
+              // Ensure attendees is an array (JSONB might be stored as object or array)
+              let attendees = event.attendees;
+              if (attendees && typeof attendees === 'string') {
+                try {
+                  attendees = JSON.parse(attendees);
+                } catch (e) {
+                  logError('Error parsing attendees JSON:', e);
+                  attendees = null;
+                }
+              }
+              
+              return {
+                id: event.event_id,
+                summary: event.summary,
+                description: event.description,
+                start: {
+                  dateTime: event.start_time,
+                  date: event.start_time,
+                },
+                end: {
+                  dateTime: event.end_time,
+                  date: event.end_time,
+                },
+                location: event.location,
+                attendees: Array.isArray(attendees) ? attendees : (attendees ? [attendees] : null),
+                organizer: event.organizer_email ? {
+                  email: event.organizer_email,
+                  displayName: event.organizer_name,
+                } : null,
+                conferenceData: event.conference_data,
+                htmlLink: event.html_link,
+              };
+            });
             useCached = true;
             needsRefresh = false;
             log(`Returning ${events.length} cached calendar events`);

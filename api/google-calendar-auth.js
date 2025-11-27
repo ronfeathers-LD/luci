@@ -35,6 +35,44 @@ module.exports = async function handler(req, res) {
 
     const { code, state, error: oauthError, userId, action } = req.query;
 
+    // Step 4: Handle disconnection (DELETE request) - Check this FIRST before OAuth flow
+    if (req.method === 'DELETE') {
+      // For DELETE requests, try body first, then query params as fallback
+      // (Vercel may not always parse DELETE request bodies)
+      let deleteUserId = req.body?.userId || req.query?.userId;
+
+      if (!deleteUserId) {
+        return sendErrorResponse(res, new Error('Missing required parameter: userId'), 400);
+      }
+
+      // Verify user exists
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', deleteUserId)
+        .single();
+
+      if (userError || !user) {
+        return sendErrorResponse(res, new Error('User not found'), 404);
+      }
+
+      // Deactivate token (soft delete)
+      const { error: updateError } = await supabase
+        .from('google_calendar_tokens')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', deleteUserId);
+
+      if (updateError) {
+        logError('Error disconnecting Google Calendar', updateError);
+        return sendErrorResponse(res, new Error('Failed to disconnect Google Calendar'), 500, isProduction());
+      }
+
+      return sendSuccessResponse(res, { message: 'Google Calendar disconnected successfully' });
+    }
+
     // Handle status check (GET request with action=status or no code/userId)
     if (req.method === 'GET' && (action === 'status' || (!code && !userId && !oauthError))) {
       // Check if Google Calendar is configured
@@ -244,12 +282,13 @@ module.exports = async function handler(req, res) {
           return sendErrorResponse(res, new Error('Failed to store access token. Could not save access token to database.'), 500, isProduction());
         }
 
-        // Return success page
+        // Return success page with auto-redirect
         return res.status(200).send(`
           <!DOCTYPE html>
           <html>
           <head>
             <title>Google Calendar OAuth Success</title>
+            <meta http-equiv="refresh" content="2;url=/calendar">
             <style>
               body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -289,6 +328,25 @@ module.exports = async function handler(req, res) {
                 font-size: 0.875rem;
                 color: #374151;
               }
+              .redirect-message {
+                margin-top: 1.5rem;
+                font-size: 0.875rem;
+                color: #6b7280;
+              }
+              .redirect-link {
+                display: inline-block;
+                margin-top: 1rem;
+                padding: 0.75rem 1.5rem;
+                background: #4285f4;
+                color: white;
+                text-decoration: none;
+                border-radius: 0.375rem;
+                font-weight: 600;
+                transition: background 0.2s;
+              }
+              .redirect-link:hover {
+                background: #3367d6;
+              }
             </style>
           </head>
           <body>
@@ -299,10 +357,17 @@ module.exports = async function handler(req, res) {
               <div class="token-info">
                 <strong>Token expires:</strong> ${new Date(expiresAt).toLocaleString()}
               </div>
-              <p style="margin-top: 1.5rem; font-size: 0.875rem;">
-                You can close this window and return to the application.
-              </p>
+              <div class="redirect-message">
+                <p>Redirecting you back to the calendar page...</p>
+                <a href="/calendar" class="redirect-link">Go to Calendar Page</a>
+              </div>
             </div>
+            <script>
+              // Also use JavaScript redirect as fallback
+              setTimeout(function() {
+                window.location.href = '/calendar';
+              }, 2000);
+            </script>
           </body>
           </html>
         `);
@@ -314,42 +379,6 @@ module.exports = async function handler(req, res) {
         }
         return sendErrorResponse(res, new Error(`Failed to exchange authorization code: ${tokenError.message}`), 400);
       }
-    }
-
-    // Step 4: Handle disconnection (DELETE request)
-    if (req.method === 'DELETE') {
-      const { userId } = req.body;
-
-      if (!userId) {
-        return sendErrorResponse(res, new Error('Missing required parameter: userId'), 400);
-      }
-
-      // Verify user exists
-      const { data: user, error: userError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('id', userId)
-        .single();
-
-      if (userError || !user) {
-        return sendErrorResponse(res, new Error('User not found'), 404);
-      }
-
-      // Deactivate token (soft delete)
-      const { error: updateError } = await supabase
-        .from('google_calendar_tokens')
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', userId);
-
-      if (updateError) {
-        logError('Error disconnecting Google Calendar', updateError);
-        return sendErrorResponse(res, new Error('Failed to disconnect Google Calendar'), 500, isProduction());
-      }
-
-      return sendSuccessResponse(res, { message: 'Google Calendar disconnected successfully' });
     }
 
     return sendErrorResponse(res, new Error('Invalid request'), 400);

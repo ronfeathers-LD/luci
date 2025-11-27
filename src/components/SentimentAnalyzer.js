@@ -6,10 +6,8 @@ const analytics = {
   track: (event, data) => {
     if (window.isProduction) {
       // In production, send to analytics service
-      window.log('Analytics:', event, data);
-    } else {
-      window.log('Analytics (dev):', event, data);
     }
+    // Dev logging removed for cleaner console
   },
   pageView: (page) => {
     analytics.track('page_view', { page });
@@ -30,14 +28,15 @@ const fetchAvomaData = async (customerIdentifier, salesforceAccountId = null) =>
             salesforceAccountId: salesforceAccountId,
           }),
         });
+        const responseClone = response.clone();
 
         if (!response.ok) {
           // Only throw error for actual API errors, not missing transcriptions
-          const errorData = await response.json();
+          const errorData = await responseClone.json();
           throw new Error(errorData.error || 'Failed to fetch transcription');
         }
 
-        const data = await response.json();
+        const data = await responseClone.json();
         // Return transcription, meeting counts, and any warning
         return {
           transcription: data.transcription || '',
@@ -119,13 +118,14 @@ const analyzeSentiment = async (transcription, salesforceContext, userId, accoun
       forceRefresh: forceRefresh
     })
   });
+  const responseClone = response.clone();
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+    const errorData = await responseClone.json().catch(() => ({ error: 'Unknown error' }));
     throw new Error(errorData.error || `Server error: ${response.status}`);
   }
 
-  const result = await response.json();
+  const result = await responseClone.json();
   
   // Validate score is within range
   if (result.score < 1 || result.score > 10) {
@@ -391,49 +391,18 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         accountId: accountData.id, // This might be a UUID, which is fine for the lookup
       });
       
-      window.log('Fetching cases with params:', params.toString());
-      
       const casesResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-cases?${params}`);
-      window.log('Cases API response status:', casesResponse.status, casesResponse.ok);
+      const casesResponseClone = casesResponse.clone();
       
       if (casesResponse.ok) {
-        const casesData = await casesResponse.json();
-        window.log('Cases API response data:', {
-          hasCases: !!casesData.cases,
-          casesType: Array.isArray(casesData.cases) ? 'array' : typeof casesData.cases,
-          casesLength: casesData.cases?.length || 0,
-          cached: casesData.cached,
-          total: casesData.total,
-          _debug: casesData._debug,
-        });
-        
+        const casesData = await casesResponseClone.json();
         const fetchedCases = casesData.cases || [];
-        
-        window.log('Fetched cases array:', {
-          length: fetchedCases.length,
-          isEmpty: fetchedCases.length === 0,
-          firstCase: fetchedCases[0] || null,
-        });
         
         // Update loading source based on response
         setCasesLoadingFromCache(casesData.cached === true);
-        
-        // Log and set cases
-        if (casesData.cached) {
-          window.log(`✅ Fetched ${fetchedCases.length} cases from cache for account: ${salesforceAccountId}`);
-        } else {
-          window.log(`✅ Fetched ${fetchedCases.length} cases from Salesforce for account: ${salesforceAccountId}`);
-        }
-        
-        window.log('Setting cases in state, count:', fetchedCases.length);
         setCases(fetchedCases);
-        
-        // Verify cases were set (after a brief delay to let state update)
-        setTimeout(() => {
-          window.log('Cases state check after setCases - this will show in next render');
-        }, 100);
       } else {
-        const errorData = await casesResponse.json().catch(() => ({}));
+        const errorData = await casesResponseClone.json().catch(() => ({}));
         window.logError('Error fetching cases:', new Error(errorData.message || errorData.error || `HTTP ${casesResponse.status}`));
         setCases([]);
       }
@@ -485,8 +454,9 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       });
       
       const contactsResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-contacts?${params}`);
+      const contactsResponseClone = contactsResponse.clone();
       if (contactsResponse.ok) {
-        const contactsData = await contactsResponse.json();
+        const contactsData = await contactsResponseClone.json();
         const fetchedContacts = contactsData.contacts || [];
         
         // Update loading source based on response
@@ -494,9 +464,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         
         // Log whether we got cached or fresh data
         if (contactsData.cached) {
-          window.log(`Contacts loaded from cache (last synced: ${contactsData.lastSyncedAt ? new Date(contactsData.lastSyncedAt).toLocaleString() : 'unknown'})`);
-        } else {
-          window.log(`Contacts loaded from Salesforce (fresh sync)`);
+          // Contacts loaded from cache
         }
         
         // Enrich contacts with Apollo.io data using bulk endpoint
@@ -560,7 +528,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 }
 
                 if (!window.isProduction) {
-                  window.log(`Apollo bulk enrichment: ${bulkData.enriched} enriched, ${bulkData.cached} cached, ${bulkData.failed} failed${bulkData.skipped ? `, ${bulkData.skipped} skipped (credits exhausted)` : ''}`);
                 }
               }
             } catch (parseErr) {
@@ -576,10 +543,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             }
           } else if (bulkEnrichResponse.status === 404) {
             // Endpoint not found - fall back to individual calls (but with rate limiting)
-            if (!window.isProduction) {
-              console.warn('Apollo bulk enrichment endpoint not found (404). Falling back to individual enrichment with rate limiting.');
-            }
-            
             // Fallback: Use individual calls but with rate limiting (max 50 per minute)
             // Process in batches of 10 with delays
             const BATCH_SIZE = 10;
@@ -642,7 +605,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         
         setContacts(enrichedContacts);
         if (!window.isProduction) {
-          window.log(`Fetched ${enrichedContacts.length} contacts for account: ${salesforceAccountId}`);
         }
       } else {
         const errorData = await contactsResponse.json().catch(() => ({}));
@@ -678,9 +640,10 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         });
 
         const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+        const responseClone = response.clone();
         
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+          const errorData = await responseClone.json().catch(() => ({}));
           // Don't throw error for empty accounts - that's expected if user hasn't added any yet
           if (errorData.error && !errorData.error.includes('not found')) {
             throw new Error(errorData.message || errorData.error || 'Failed to fetch accounts');
@@ -690,7 +653,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           return;
         }
 
-        const data = await response.json();
+        const data = await responseClone.json();
         const cachedAccounts = data.accounts || [];
         setAccounts(cachedAccounts);
         
@@ -722,11 +685,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
   // Fetch cases and contacts when selected account changes
   useEffect(() => {
     if (selectedAccount) {
-      window.log('Account selected, fetching cases and contacts:', {
-        accountId: selectedAccount.id,
-        salesforceId: selectedAccount.salesforceId,
-        accountName: selectedAccount.name,
-      });
       // Use the memoized functions to fetch data
       fetchCasesForAccount(selectedAccount);
       fetchContactsForAccount(selectedAccount);
@@ -752,7 +710,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                                 ? accountData.id : null);
     
     if (!salesforceAccountId && !accountData.id) {
-      window.log('Cannot fetch sentiment history: No account ID available', { accountData });
       return;
     }
 
@@ -765,22 +722,13 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         days: '365',
       });
       
-      window.log('Fetching sentiment history:', { 
-        accountId: accountData.id, 
-        salesforceAccountId,
-        params: params.toString() 
-      });
-      
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const responseClone = response.clone();
       if (response.ok) {
-        const data = await response.json();
-        window.log('Sentiment history fetched:', { 
-          count: data.history?.length || 0,
-          stats: data.stats 
-        });
+        const data = await responseClone.json();
         setSentimentHistory(data);
       } else {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         window.logError('Failed to fetch sentiment history:', { 
           status: response.status, 
           error: errorData 
@@ -823,9 +771,10 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         days: '365',
       });
       
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-history?${params}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const responseClone = response.clone();
       if (response.ok) {
-        const data = await response.json();
+        const data = await responseClone.json();
         if (data.history && data.history.length > 0) {
           setCachedSentiment(data.history[0]); // Most recent sentiment
         } else {
@@ -875,13 +824,14 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       });
 
       const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const responseClone = response.clone();
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await responseClone.json().catch(() => ({}));
         throw new Error(errorData.message || errorData.error || 'Failed to search accounts');
       }
 
-      const data = await response.json();
+      const data = await responseClone.json();
       setAccounts(data.accounts || []);
       setIsSearchMode(true);
       
@@ -1089,14 +1039,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                                  (selectedAccount?.id && !selectedAccount.id.includes('-') && 
                                   (selectedAccount.id.length === 15 || selectedAccount.id.length === 18) 
                                   ? selectedAccount.id : null);
-      
-      window.log('Analyzing sentiment with account info:', {
-        accountId: accountId,
-        salesforceAccountId: salesforceAccountId,
-        accountIdIsUUID: accountId && accountId.includes('-') && accountId.length === 36,
-        userId: user?.id,
-        customerIdentifier: customerIdentifier,
-      });
       
       const result = await analyzeSentiment(
         transcription, 
@@ -1329,9 +1271,25 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 <h1 className="typography-heading text-lean-black mb-2">
                   Sentiment Analysis Results
                 </h1>
-                <p className="typography-body text-lean-black-70">
-                  {selectedAccount?.name || 'Account Analysis'}
-                </p>
+                {selectedAccount ? (
+                  <button
+                    onClick={() => {
+                      const accountId = selectedAccount.salesforceId || selectedAccount.id;
+                      if (window.navigate) {
+                        window.navigate(`/account/${accountId}/data`);
+                      } else {
+                        window.location.href = `/account/${accountId}/data`;
+                      }
+                    }}
+                    className="typography-body text-lean-black-70 hover:text-lean-green hover:underline transition-colors text-left"
+                  >
+                    {selectedAccount.name || 'Account Analysis'}
+                  </button>
+                ) : (
+                  <p className="typography-body text-lean-black-70">
+                    Account Analysis
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1460,7 +1418,19 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                       const height = (entry.score / 10) * 100;
                       const color = entry.score <= 4 ? '#ef4444' : entry.score <= 7 ? '#eab308' : '#22c55e';
                       return (
-                        <div key={entry.id || idx} className="flex-1 flex flex-col items-center" title={`Score: ${entry.score} on ${new Date(entry.analyzed_at).toLocaleDateString()}`}>
+                        <button
+                          key={entry.id || idx}
+                          onClick={() => {
+                            if (entry.id && window.navigate) {
+                              window.navigate(`/sentiment/${entry.id}`);
+                            } else if (entry.id) {
+                              window.location.href = `/sentiment/${entry.id}`;
+                            }
+                          }}
+                          className="flex-1 flex flex-col items-center cursor-pointer"
+                          title={`Score: ${entry.score} on ${new Date(entry.analyzed_at).toLocaleDateString()} - Click to view details`}
+                          disabled={!entry.id}
+                        >
                           <div
                             className="w-full rounded-t transition-all hover:opacity-80"
                             style={{
@@ -1472,7 +1442,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                           <div className="text-xs text-lean-black-60 mt-1 transform -rotate-45 origin-top-left whitespace-nowrap" style={{ writingMode: 'vertical-rl' }}>
                             {new Date(entry.analyzed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
@@ -1484,7 +1454,18 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 <h4 className="text-sm font-semibold text-lean-black-80 mb-3">Recent Analyses</h4>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {sentimentHistory.history.slice(0, 10).map((entry) => (
-                    <div key={entry.id} className="flex items-center justify-between p-3 bg-lean-almost-white rounded-lg border border-lean-black/20">
+                    <button
+                      key={entry.id}
+                      onClick={() => {
+                        if (entry.id && window.navigate) {
+                          window.navigate(`/sentiment/${entry.id}`);
+                        } else if (entry.id) {
+                          window.location.href = `/sentiment/${entry.id}`;
+                        }
+                      }}
+                      className="w-full flex items-center justify-between p-3 bg-lean-almost-white rounded-lg border border-lean-black/20 hover:bg-lean-green-10 hover:border-lean-green/30 transition-colors text-left"
+                      disabled={!entry.id}
+                    >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <span className={`text-lg font-bold ${
@@ -1501,7 +1482,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                         </div>
                         <p className="text-xs text-lean-black-70 mt-1 line-clamp-1">{entry.summary}</p>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
