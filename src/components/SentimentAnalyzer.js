@@ -1543,7 +1543,19 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   </div>
                   {dataSources.hasAccountData ? (
                     <p className="text-lean-black-70 ml-7">
-                      {dataSources.accountName}
+                      <button
+                        onClick={() => {
+                          const accountId = selectedAccount?.salesforceId || selectedAccount?.id;
+                          if (accountId && window.navigate) {
+                            window.navigate(`/account/${accountId}/data`);
+                          } else if (accountId) {
+                            window.location.href = `/account/${accountId}/data`;
+                          }
+                        }}
+                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      >
+                        {dataSources.accountName}
+                      </button>
                       {dataSources.casesCount > 0 && (
                         <span className="block mt-1 text-xs text-lean-black-60">
                           {dataSources.casesCount} support case{dataSources.casesCount !== 1 ? 's' : ''} found
@@ -1616,7 +1628,19 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                     <div>
                       <span className="font-medium text-lean-black-70">Account Name:</span>
-                      <span className="ml-2 text-lean-black">{analysisData.salesforceContext.account_name || 'N/A'}</span>
+                      <button
+                        onClick={() => {
+                          const accountId = selectedAccount?.salesforceId || selectedAccount?.id || analysisData.salesforceContext?.account_id;
+                          if (accountId && window.navigate) {
+                            window.navigate(`/account/${accountId}/data`);
+                          } else if (accountId) {
+                            window.location.href = `/account/${accountId}/data`;
+                          }
+                        }}
+                        className="ml-2 text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      >
+                        {analysisData.salesforceContext.account_name || 'N/A'}
+                      </button>
                     </div>
                     <div>
                       <span className="font-medium text-lean-black-70">Tier:</span>
