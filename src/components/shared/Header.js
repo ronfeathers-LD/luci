@@ -156,13 +156,30 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
               }
             }}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              isActive('/') && currentPath !== '/user' && currentPath !== '/calendar' && !currentPath.startsWith('/admin')
+              isActive('/') && currentPath !== '/user' && currentPath !== '/calendar' && currentPath !== '/analyze' && !currentPath.startsWith('/admin') && !currentPath.startsWith('/account') && !currentPath.startsWith('/sentiment')
                 ? 'text-lean-green border-lean-green'
                 : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
             }`}
             aria-label="Go to dashboard"
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => {
+              if (window.navigate) {
+                window.navigate('/analyze');
+              } else {
+                window.location.href = '/analyze';
+              }
+            }}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              isActive('/analyze')
+                ? 'text-lean-green border-lean-green'
+                : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
+            }`}
+            aria-label="Run sentiment analysis"
+          >
+            Analyze
           </button>
           <button
             onClick={() => {

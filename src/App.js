@@ -83,7 +83,17 @@ const App = () => {
   }, []); // Only run once on mount
 
   useEffect(() => {
-    analytics.pageView(user ? (currentPath === '/admin' ? 'admin' : 'dashboard') : 'login');
+    let pageName = 'login';
+    if (user) {
+      if (currentPath === '/admin') pageName = 'admin';
+      else if (currentPath === '/analyze') pageName = 'analyze';
+      else if (currentPath === '/user') pageName = 'user';
+      else if (currentPath === '/calendar') pageName = 'calendar';
+      else if (currentPath.startsWith('/account')) pageName = 'account';
+      else if (currentPath.startsWith('/sentiment')) pageName = 'sentiment';
+      else pageName = 'dashboard';
+    }
+    analytics.pageView(pageName);
   }, [user, currentPath]);
 
   const handleSignIn = async (userInfo) => {
@@ -204,8 +214,12 @@ const App = () => {
     return <window.CalendarPage user={user} onSignOut={handleSignOut} />;
   }
 
-  // Default route - show SentimentAnalyzer
-  return <window.SentimentAnalyzer user={user} onSignOut={handleSignOut} />;
+  if (currentPath === '/analyze') {
+    return <window.SentimentAnalyzer user={user} onSignOut={handleSignOut} />;
+  }
+
+  // Default route - show Dashboard
+  return <window.Dashboard user={user} onSignOut={handleSignOut} />;
 };
 
 // Export to window

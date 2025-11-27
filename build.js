@@ -44,6 +44,7 @@ try {
     { src: 'src/components/user/SentimentDetailPage.js', out: 'dist/SentimentDetailPage.js' },
     { src: 'src/components/calendar/CalendarPage.js', out: 'dist/CalendarPage.js' },
     { src: 'src/components/SentimentAnalyzer.js', out: 'dist/SentimentAnalyzer.js' },
+    { src: 'src/components/Dashboard.js', out: 'dist/Dashboard.js' },
     { src: 'src/lib/router.js', out: 'dist/router.js' },
     { src: 'src/App.js', out: 'dist/App.js' },
   ];
