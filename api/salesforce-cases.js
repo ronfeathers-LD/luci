@@ -303,7 +303,7 @@ module.exports = async function handler(req, res) {
 
   // Validate input
   if (!salesforceAccountId) {
-    return res.status(400).json({ error: 'Missing required parameter: salesforceAccountId' });
+    return sendErrorResponse(res, new Error('Missing required parameter: salesforceAccountId'), 400);
   }
 
   const shouldForceRefresh = forceRefresh === 'true' || forceRefresh === '1';
