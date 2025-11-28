@@ -146,75 +146,77 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
         </div>
 
         {/* Bottom row: Navigation Tabs */}
-        <div className="flex items-center gap-1 border-b border-[#f7f7f7]/20">
-          <button
-            onClick={() => {
-              if (window.navigate) {
-                window.navigate('/');
-              } else {
-                window.location.href = '/';
-              }
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              isActive('/') && currentPath !== '/user' && currentPath !== '/calendar' && currentPath !== '/analyze' && !currentPath.startsWith('/admin') && !currentPath.startsWith('/account') && !currentPath.startsWith('/sentiment')
-                ? 'text-lean-green border-lean-green'
-                : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
-            }`}
-            aria-label="Go to dashboard"
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => {
-              if (window.navigate) {
-                window.navigate('/analyze');
-              } else {
-                window.location.href = '/analyze';
-              }
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              isActive('/analyze')
-                ? 'text-lean-green border-lean-green'
-                : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
-            }`}
-            aria-label="Run sentiment analysis"
-          >
-            Analyze
-          </button>
-          <button
-            onClick={() => {
-              if (window.navigate) {
-                window.navigate('/user');
-              } else {
-                window.location.href = '/user';
-              }
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              isActive('/user')
-                ? 'text-lean-green border-lean-green'
-                : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
-            }`}
-            aria-label="Manage my accounts"
-          >
-            My Accounts
-          </button>
-          <button
-            onClick={() => {
-              if (window.navigate) {
-                window.navigate('/calendar');
-              } else {
-                window.location.href = '/calendar';
-              }
-            }}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-              isActive('/calendar')
-                ? 'text-lean-green border-lean-green'
-                : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
-            }`}
-            aria-label="View calendar"
-          >
-            Calendar
-          </button>
+        <div className="flex items-center justify-between gap-1 border-b border-[#f7f7f7]/20">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                if (window.navigate) {
+                  window.navigate('/');
+                } else {
+                  window.location.href = '/';
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                isActive('/') && currentPath !== '/user' && currentPath !== '/calendar' && currentPath !== '/analyze' && !currentPath.startsWith('/admin') && !currentPath.startsWith('/account') && !currentPath.startsWith('/sentiment')
+                  ? 'text-lean-green border-lean-green'
+                  : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
+              }`}
+              aria-label="Go to dashboard"
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => {
+                if (window.navigate) {
+                  window.navigate('/analyze');
+                } else {
+                  window.location.href = '/analyze';
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                isActive('/analyze')
+                  ? 'text-lean-green border-lean-green'
+                  : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
+              }`}
+              aria-label="Run sentiment analysis"
+            >
+              Analyze
+            </button>
+            <button
+              onClick={() => {
+                if (window.navigate) {
+                  window.navigate('/user');
+                } else {
+                  window.location.href = '/user';
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                isActive('/user')
+                  ? 'text-lean-green border-lean-green'
+                  : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
+              }`}
+              aria-label="Manage my accounts"
+            >
+              My Accounts
+            </button>
+            <button
+              onClick={() => {
+                if (window.navigate) {
+                  window.navigate('/calendar');
+                } else {
+                  window.location.href = '/calendar';
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                isActive('/calendar')
+                  ? 'text-lean-green border-lean-green'
+                  : 'text-[#f7f7f7]/70 border-transparent hover:text-[#f7f7f7] hover:border-[#f7f7f7]/30'
+              }`}
+              aria-label="View calendar"
+            >
+              Calendar
+            </button>
+          </div>
           {hasAdminRole(user) && (
             <button
               onClick={() => {

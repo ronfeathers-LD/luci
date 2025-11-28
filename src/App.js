@@ -1,20 +1,6 @@
 // Main App Component with Routing
 const { useState, useEffect } = React;
 
-// Analytics helper (structure for future integration)
-const analytics = {
-  track: (event, data) => {
-    if (window.isProduction) {
-      // In production, send to analytics service
-      // Example: gtag('event', event, data);
-    }
-    // Dev logging removed for cleaner console
-  },
-  pageView: (page) => {
-    analytics.track('page_view', { page });
-  }
-};
-
 // Main App Component with Authentication and Routing
 const App = () => {
   const [user, setUser] = useState(() => {
@@ -37,7 +23,7 @@ const App = () => {
   useEffect(() => {
     const handleLocationChange = () => {
       setCurrentPath(window.location.pathname);
-      analytics.pageView(window.location.pathname);
+      window.analytics.pageView(window.location.pathname);
     };
 
     // Listen for popstate events (back/forward buttons)
@@ -93,7 +79,7 @@ const App = () => {
       else if (currentPath.startsWith('/sentiment')) pageName = 'sentiment';
       else pageName = 'dashboard';
     }
-    analytics.pageView(pageName);
+    window.analytics.pageView(pageName);
   }, [user, currentPath]);
 
   const handleSignIn = async (userInfo) => {
@@ -121,13 +107,13 @@ const App = () => {
       // Save user info to localStorage
       localStorage.setItem('userInfo', JSON.stringify(userData));
       setUser(userData);
-      analytics.track('user_signed_in', { email: userData.email, userId: userData.id });
+      window.analytics.track('user_signed_in', { email: userData.email, userId: userData.id });
     } catch (error) {
       window.logError('Error creating user:', error);
       // Fallback to saving Google user info if API fails
       localStorage.setItem('userInfo', JSON.stringify(userInfo));
       setUser(userInfo);
-      analytics.track('user_signed_in', { email: userInfo.email });
+      window.analytics.track('user_signed_in', { email: userInfo.email });
     }
   };
 
@@ -139,7 +125,7 @@ const App = () => {
     } else {
       window.location.href = '/';
     }
-    analytics.track('user_signed_out');
+    window.analytics.track('user_signed_out');
   };
 
   // Helper function to check if user has admin role (case-insensitive)
@@ -189,9 +175,38 @@ const App = () => {
       return <window.AllAnalysesPage user={user} onSignOut={handleSignOut} />;
     }
 
+    if (currentPath === '/admin/settings') {
+      return <window.SystemSettingsPage user={user} onSignOut={handleSignOut} />;
+    }
+
     if (currentPath === '/admin') {
       return <window.AdminPage user={user} onSignOut={handleSignOut} />;
     }
+
+    // If we're in admin routes but didn't match any, show 404 or redirect
+    // This prevents falling through to the dashboard
+    return (
+      <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
+        <div className="text-center bg-lean-white rounded-lg shadow-lg p-8 max-w-md">
+          <h1 className="typography-heading text-lean-black mb-4">Page Not Found</h1>
+          <p className="text-lean-black-70 mb-6">
+            The admin page you're looking for doesn't exist.
+          </p>
+          <button
+            onClick={() => {
+              if (window.navigate) {
+                window.navigate('/admin');
+              } else {
+                window.location.href = '/admin';
+              }
+            }}
+            className="px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
+          >
+            Back to Admin Panel
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (currentPath === '/user') {

@@ -7,7 +7,7 @@
  */
 
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { normalizeLinkedInURL } = require('../lib/linkedin-client');
+const { normalizeLinkedInURL } = require('../lib/linkedin-url-utils');
 const { authenticateSalesforce, escapeSOQL } = require('../lib/salesforce-client');
 const { isCacheFresh } = require('../lib/cache-helpers');
 const { handlePreflight, validateRequestSize, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, logWarn, isProduction } = require('../lib/api-helpers');

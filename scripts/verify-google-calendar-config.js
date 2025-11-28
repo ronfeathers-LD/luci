@@ -28,7 +28,7 @@ console.log('🔍 Verifying Google Calendar OAuth Configuration...\n');
 
 const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
-const redirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI || 'http://localhost:3000/api/google-calendar-auth';
+const redirectUri = process.env.GOOGLE_CALENDAR_REDIRECT_URI || 'http://localhost:3000/api/google-calendar';
 
 console.log('Environment Variables:');
 console.log('  GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID || '(not set)');

@@ -50,14 +50,6 @@ function deduplicatedFetch(url, options = {}) {
   return requestPromise;
 }
 
-/**
- * Clear all pending requests (useful for cleanup or testing)
- */
-function clearPendingRequests() {
-  pendingRequests.clear();
-}
-
 // Export to window for use in components
 window.deduplicatedFetch = deduplicatedFetch;
-window.clearPendingRequests = clearPendingRequests;
 

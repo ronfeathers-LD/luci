@@ -1,18 +1,5 @@
 // SentimentAnalyzer Component
-const { useState, useCallback, useEffect, useRef, useMemo } = React;
-
-// Analytics helper (structure for future integration)
-const analytics = {
-  track: (event, data) => {
-    if (window.isProduction) {
-      // In production, send to analytics service
-    }
-    // Dev logging removed for cleaner console
-  },
-  pageView: (page) => {
-    analytics.track('page_view', { page });
-  }
-};
+const { useState, useCallback, useEffect } = React;
 
 // Helper Functions
 // Fetch Avoma transcription data (with caching)
@@ -254,7 +241,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
               <div className="bg-lean-green-10 rounded-lg p-4 border-l-4 border-lean-green">
                 <h4 className="font-semibold text-lean-black mb-2">5. Contact Intelligence & Professional Context</h4>
                 <p className="text-lean-black-80 text-sm">
-                  Enriched contact data from Apollo.io and LinkedIn provides deep insights:
+                  Enriched contact data from Salesforce provides deep insights:
                 </p>
                 <ul className="list-disc list-inside text-lean-black-80 text-sm mt-2 space-y-1">
                   <li><strong>Contact Level Breakdown:</strong> C-Level, Sr. Level, and Other contacts categorized by title</li>
@@ -366,13 +353,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                                 ? accountData.id : null);
     
     if (!salesforceAccountId) {
-      if (!window.isProduction) {
-        console.warn('Cannot fetch cases: No valid Salesforce Account ID found', { 
-          accountData,
-          hasSalesforceId: !!accountData.salesforceId,
-          id: accountData.id 
-        });
-      }
       setCases([]);
       setCasesLoading(false);
       setCasesLoadingFromCache(false);
@@ -428,13 +408,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                                 ? accountData.id : null);
     
     if (!salesforceAccountId) {
-      if (!window.isProduction) {
-        console.warn('Cannot fetch contacts: No valid Salesforce Account ID found', { 
-          accountData,
-          hasSalesforceId: !!accountData.salesforceId,
-          id: accountData.id 
-        });
-      }
       setContacts([]);
       setContactsLoading(false);
       setContactsLoadingFromCache(false);
@@ -464,143 +437,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           // Contacts loaded from cache
         }
         
-        // Enrich contacts with Apollo.io data using bulk endpoint
-        // Apollo.io provides LinkedIn profile data, so we don't need LinkedIn enrichment
-        // Use bulk endpoint to stay within rate limits (50 calls/minute)
-        let enrichedContacts = [...fetchedContacts];
-        
-        // Only attempt enrichment if we have contacts
-        if (fetchedContacts.length > 0) {
-          try {
-            // Prepare contacts for bulk enrichment
-            const contactsForEnrichment = fetchedContacts.map(contact => ({
-              contactId: contact.id,
-              salesforceContactId: contact.salesforce_id,
-              email: contact.email,
-              firstName: contact.firstName || contact.first_name,
-              lastName: contact.lastName || contact.last_name,
-              linkedinURL: contact.linkedinURL || contact.linkedin_url,
-              company: contact.accountName || contact.account_name,
-              account_name: contact.accountName || contact.account_name,
-            }));
-
-            // Use bulk enrichment endpoint to batch API calls
-            const bulkEnrichResponse = await (window.deduplicatedFetch || fetch)('/api/apollo-enrich', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contacts: contactsForEnrichment,
-              }),
-            });
-          
-          if (bulkEnrichResponse.ok) {
-            try {
-              const bulkData = await bulkEnrichResponse.json();
-              if (bulkData.success && bulkData.results) {
-                // Create a map of contact IDs to enrichment results
-                const enrichmentMap = new Map();
-                bulkData.results.forEach(result => {
-                  const contactId = result.contact?.contactId || result.contact?.id;
-                  if (contactId) {
-                    enrichmentMap.set(contactId, result);
-                  }
-                });
-
-                // Merge enrichment data back into contacts
-                enrichedContacts = fetchedContacts.map(contact => {
-                  const enrichment = enrichmentMap.get(contact.id);
-                  if (enrichment && enrichment.success && enrichment.profile) {
-                    return {
-                      ...contact,
-                      linkedinProfile: enrichment.profile,
-                      enrichmentSource: 'apollo',
-                    };
-                  }
-                  return contact;
-                });
-
-                // Show user-friendly message if credits exhausted
-                if (bulkData.creditsExhausted && bulkData.message) {
-                  setError(`Note: ${bulkData.message}`);
-                }
-
-                if (!window.isProduction) {
-                }
-              }
-            } catch (parseErr) {
-              // Silently fail - enrichment is optional
-              if (!window.isProduction) {
-                console.warn('Apollo bulk enrichment response parse error:', parseErr);
-              }
-            }
-          } else if (bulkEnrichResponse.status === 400) {
-            // Bad request (e.g., empty contacts array) - silently skip enrichment
-            if (!window.isProduction) {
-              console.warn('Apollo bulk enrichment request invalid (400). Skipping enrichment.');
-            }
-          } else if (bulkEnrichResponse.status === 404) {
-            // Endpoint not found - fall back to individual calls (but with rate limiting)
-            // Fallback: Use individual calls but with rate limiting (max 50 per minute)
-            // Process in batches of 10 with delays
-            const BATCH_SIZE = 10;
-            const DELAY_MS = 15000; // 15 seconds between batches (allows ~40 calls/minute)
-            
-            for (let i = 0; i < fetchedContacts.length; i += BATCH_SIZE) {
-              const batch = fetchedContacts.slice(i, i + BATCH_SIZE);
-              
-              await Promise.all(
-                batch.map(async (contact) => {
-                  try {
-                    const apolloEnrichResponse = await (window.deduplicatedFetch || fetch)('/api/apollo-enrich', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        contactId: contact.id,
-                        email: contact.email,
-                        firstName: contact.firstName || contact.first_name,
-                        lastName: contact.lastName || contact.last_name,
-                        linkedinURL: contact.linkedinURL || contact.linkedin_url,
-                        company: contact.accountName || contact.account_name,
-                      }),
-                    });
-                    
-                    if (apolloEnrichResponse.ok) {
-                      const apolloData = await apolloEnrichResponse.json();
-                      if (apolloData.success && apolloData.profile) {
-                        const contactIndex = enrichedContacts.findIndex(c => c.id === contact.id);
-                        if (contactIndex >= 0) {
-                          enrichedContacts[contactIndex] = {
-                            ...enrichedContacts[contactIndex],
-                            linkedinProfile: apolloData.profile,
-                            enrichmentSource: 'apollo',
-                          };
-                        }
-                      }
-                    }
-                  } catch (apolloErr) {
-                    // Silently fail - enrichment is optional
-                    if (!window.isProduction) {
-                      console.warn('Apollo enrichment error for contact:', contact.id, apolloErr);
-                    }
-                  }
-                })
-              );
-              
-              // Wait between batches to respect rate limits
-              if (i + BATCH_SIZE < fetchedContacts.length) {
-                await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-              }
-            }
-          }
-          } catch (bulkErr) {
-            // Network error or other issue - silently fail - enrichment is optional
-            if (!window.isProduction) {
-              console.warn('Apollo bulk enrichment error:', bulkErr);
-            }
-          }
-        }
-        
-        setContacts(enrichedContacts);
+        setContacts(fetchedContacts);
         if (!window.isProduction) {
         }
       } else {
@@ -660,7 +497,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           setCustomerIdentifier(cachedAccounts[0].name);
         }
         
-        analytics.track('cached_accounts_loaded', { 
+        window.analytics.track('cached_accounts_loaded', { 
           count: cachedAccounts.length,
           userId: user.id 
         });
@@ -841,7 +678,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         setCustomerIdentifier('');
       }
       
-      analytics.track('accounts_searched', { 
+      window.analytics.track('accounts_searched', { 
         searchTerm: searchQuery,
         count: data.accounts?.length || 0,
         userId: user?.id 
@@ -890,9 +727,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       if (avomaData.warning || !transcription) {
         const warningMessage = avomaData.warning || 'No Avoma transcription available. Analysis will proceed with Salesforce account data only.';
         setAvomaWarning(warningMessage);
-        if (!window.isProduction) {
-          console.warn('Avoma transcription warning:', warningMessage);
-        }
       } else {
         setAvomaWarning(null);
       }
@@ -939,7 +773,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         }
       });
 
-      // Enrich with comprehensive contact data from Salesforce and Apollo.io
+      // Enrich with comprehensive contact data from Salesforce
       const linkedinData = {
         contacts: contactsWithCaseInvolvement
           .filter(c => c.linkedinURL || c.linkedinProfile || c.email || c.name)
@@ -961,7 +795,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             mailing_city: c.mailing_city,
             mailing_state: c.mailing_state,
             mailing_country: c.mailing_country,
-            // Apollo.io Enrichment Data
             current_title: c.title || c.linkedinProfile?.current_title,
             current_company: c.linkedinProfile?.current_company || c.account_name,
             job_changed_recently: c.linkedinProfile?.job_changed_recently || false,
@@ -969,27 +802,22 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             job_change_likelihood: c.linkedinProfile?.job_change_likelihood,
             profile_updated_recently: c.linkedinProfile?.profile_updated_at ? 
               (new Date() - new Date(c.linkedinProfile.profile_updated_at)) < (30 * 24 * 60 * 60 * 1000) : false,
-            // Company Intelligence (Apollo)
             company_industry: c.linkedinProfile?.company_industry,
             company_size: c.linkedinProfile?.company_size,
             company_revenue: c.linkedinProfile?.company_revenue,
             company_technologies: c.linkedinProfile?.company_technologies || [],
-            // Employment History (Apollo)
             previous_companies: c.linkedinProfile?.previous_companies || [],
             previous_titles: c.linkedinProfile?.previous_titles || [],
-            // Contact Verification (Apollo)
             email_status: c.linkedinProfile?.email_status,
             phone_status: c.linkedinProfile?.phone_status,
             email_verified: c.linkedinProfile?.email_verified,
             phone_verified: c.linkedinProfile?.phone_verified,
-            // Engagement Metrics
             engagement_with_company: {
               posts_about_company: c.linkedinProfile?.posts_about_company || 0,
               comments_on_company_posts: c.linkedinProfile?.comments_on_company_posts || 0,
               shares_of_company_content: c.linkedinProfile?.shares_of_company_content || 0,
               reactions_to_company_posts: c.linkedinProfile?.reactions_to_company_posts || 0,
             },
-            // Engagement Rates (Apollo)
             email_open_rate: c.linkedinProfile?.email_open_rate,
             email_click_rate: c.linkedinProfile?.email_click_rate,
             response_rate: c.linkedinProfile?.response_rate,
@@ -1076,7 +904,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         }
       }, 1000); // Small delay to allow database save to complete
       
-      analytics.track('sentiment_analyzed', { 
+      window.analytics.track('sentiment_analyzed', { 
         customerIdentifier,
         score: result.score,
         hasTranscription: !!transcription,
@@ -1090,10 +918,10 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       
       if (attempt < maxRetries && (err.message?.includes('timeout') || err.message?.includes('network'))) {
         setRetryCount(attempt + 1);
-        analytics.track('sentiment_analysis_retry', { attempt: attempt + 1 });
+        window.analytics.track('sentiment_analysis_retry', { attempt: attempt + 1 });
       } else {
         setRetryCount(0);
-        analytics.track('sentiment_analysis_failed', { error: errorMessage });
+        window.analytics.track('sentiment_analysis_failed', { error: errorMessage });
       }
     } finally {
       setLoading(false);
@@ -1229,8 +1057,6 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   e.preventDefault();
                   if (onShowHelp && typeof onShowHelp === 'function') {
                     onShowHelp();
-                  } else if (!window.isProduction) {
-                    console.warn('onShowHelp is not a function:', onShowHelp);
                   }
                 }}
                 className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
@@ -2673,7 +2499,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                                 </div>
                               );
                             })()}
-                            {/* Apollo Enrichment Indicators */}
+                            {/* Enrichment Indicators */}
                             {contact.linkedinProfile && (
                               <div className="mb-1 flex flex-wrap gap-2">
                                 {contact.linkedinProfile.email_verified && (

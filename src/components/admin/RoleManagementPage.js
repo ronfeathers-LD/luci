@@ -9,6 +9,35 @@ const RoleManagementPage = ({ user, onSignOut }) => {
   const [updatingUserId, setUpdatingUserId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Helper function to format date/time
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'Never';
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+      if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+      
+      // For older dates, show formatted date
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return 'Invalid date';
+    }
+  };
+
   // Fetch all users with roles
   const fetchUsers = useCallback(async () => {
     try {
@@ -248,6 +277,33 @@ const RoleManagementPage = ({ user, onSignOut }) => {
                       {u.roles.length === 0 && (
                         <p className="text-sm text-lean-black-60 italic mt-2">No roles assigned</p>
                       )}
+                    </div>
+
+                    {/* Login Statistics */}
+                    <div className="mt-4 pt-4 border-t border-lean-black/10">
+                      <h4 className="text-sm font-semibold text-lean-black mb-2">Login Activity:</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <span className="text-lean-black-60">Last login:</span>
+                          <span className="ml-2 text-lean-black">
+                            {formatDateTime(u.login_stats?.last_login)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-lean-black-60">Total logins:</span>
+                          <span className="ml-2 text-lean-black font-semibold">
+                            {u.login_stats?.login_count || 0}
+                          </span>
+                        </div>
+                        {u.login_stats?.first_login && (
+                          <div className="sm:col-span-2">
+                            <span className="text-lean-black-60">First login:</span>
+                            <span className="ml-2 text-lean-black">
+                              {formatDateTime(u.login_stats.first_login)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

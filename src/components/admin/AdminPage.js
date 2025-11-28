@@ -53,7 +53,11 @@ const AdminPage = ({ user, onSignOut }) => {
               </p>
               <button 
                 onClick={() => {
-                  alert('System Settings management coming soon!');
+                  if (window.navigate) {
+                    window.navigate('/admin/settings');
+                  } else {
+                    window.location.href = '/admin/settings';
+                  }
                 }}
                 className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
               >

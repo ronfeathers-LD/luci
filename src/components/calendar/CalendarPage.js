@@ -19,7 +19,7 @@ const CalendarPage = ({ user, onSignOut }) => {
     }
 
     try {
-      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar-auth?action=status&userId=${user.id}`);
+      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar?action=status&userId=${user.id}`);
       const responseClone = response.clone();
       if (response.ok) {
         const data = await responseClone.json();
@@ -45,7 +45,7 @@ const CalendarPage = ({ user, onSignOut }) => {
       return;
     }
 
-    window.location.href = `/api/google-calendar-auth?userId=${user.id}`;
+    window.location.href = `/api/google-calendar?userId=${user.id}`;
   }, [user]);
 
   // Handle Google Calendar disconnection
@@ -61,7 +61,7 @@ const CalendarPage = ({ user, onSignOut }) => {
 
     try {
       // Use query param for DELETE requests (more reliable than body in some environments)
-      const response = await fetch(`/api/google-calendar-auth?userId=${encodeURIComponent(user.id)}`, {
+      const response = await fetch(`/api/google-calendar?userId=${encodeURIComponent(user.id)}`, {
         method: 'DELETE',
       });
 
@@ -88,7 +88,7 @@ const CalendarPage = ({ user, onSignOut }) => {
     try {
       setLoadingMeetings(true);
       setError(null);
-      const url = `/api/google-calendar-events?userId=${user.id}&days=7${forceRefresh ? '&forceRefresh=true' : ''}`;
+      const url = `/api/google-calendar?userId=${user.id}&action=events&days=7${forceRefresh ? '&forceRefresh=true' : ''}`;
       const response = await (window.deduplicatedFetch || fetch)(url);
       const responseClone = response.clone();
       

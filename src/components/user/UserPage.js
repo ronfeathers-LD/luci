@@ -128,7 +128,7 @@ const UserPage = ({ user, onSignOut }) => {
       setAddingAccountId(account.salesforceId || account.id);
       setError(null);
 
-      const response = await fetch('/api/user-accounts', {
+      const response = await fetch('/api/users?action=accounts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -180,7 +180,7 @@ const UserPage = ({ user, onSignOut }) => {
       setRemovingAccountId(account.salesforceId || account.id);
       setError(null);
 
-      const response = await fetch('/api/user-accounts', {
+      const response = await fetch('/api/users?action=accounts', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -258,7 +258,7 @@ const UserPage = ({ user, onSignOut }) => {
       setError(null);
 
       const accountIds = Array.from(selectedAccounts);
-      const response = await fetch('/api/user-accounts', {
+      const response = await fetch('/api/users?action=accounts', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
@@ -302,7 +302,7 @@ const UserPage = ({ user, onSignOut }) => {
       setError(null);
 
       // First, clear all user-account relationships
-      const clearResponse = await fetch('/api/user-accounts', {
+      const clearResponse = await fetch('/api/users?action=accounts', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

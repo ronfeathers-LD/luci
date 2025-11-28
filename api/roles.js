@@ -11,7 +11,7 @@
 
 // Import shared Supabase client utility
 const { getSupabaseClient } = require('../lib/supabase-client');
-const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, log, logError, isProduction } = require('../lib/api-helpers');
+const { handlePreflight, sendErrorResponse, sendSuccessResponse, validateSupabase, logError, isProduction } = require('../lib/api-helpers');
 
 /**
  * Check if a user has a specific role (case-insensitive)

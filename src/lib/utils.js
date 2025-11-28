@@ -1,5 +1,4 @@
 // Utility functions
-const { useState, useCallback, useEffect, useRef } = React;
 
 // Production check
 const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
@@ -65,12 +64,6 @@ const formatCurrency = (value) => {
   }).format(numValue);
 };
 
-const log = (...args) => {
-  if (!isProduction) {
-    console.log(...args);
-  }
-};
-
 const logError = (...args) => {
   console.error(...args);
 };
@@ -82,12 +75,26 @@ const getBuildVersion = () => {
          'unknown';
 };
 
+// Analytics helper (structure for future integration)
+const analytics = {
+  track: (event, data) => {
+    if (window.isProduction) {
+      // In production, send to analytics service
+      // Example: gtag('event', event, data);
+    }
+    // Dev logging removed for cleaner console
+  },
+  pageView: (page) => {
+    analytics.track('page_view', { page });
+  }
+};
+
 // Export to window
 window.categorizeContactLevel = categorizeContactLevel;
 window.formatCurrency = formatCurrency;
-window.log = log;
 window.logError = logError;
 window.isProduction = isProduction;
 window.getBuildVersion = getBuildVersion;
+window.analytics = analytics;
 
 

@@ -39,6 +39,7 @@ try {
     { src: 'src/components/admin/AdminPage.js', out: 'dist/AdminPage.js' },
     { src: 'src/components/admin/AllAnalysesPage.js', out: 'dist/AllAnalysesPage.js' },
     { src: 'src/components/admin/RoleManagementPage.js', out: 'dist/RoleManagementPage.js' },
+    { src: 'src/components/admin/SystemSettingsPage.js', out: 'dist/SystemSettingsPage.js' },
     { src: 'src/components/user/UserPage.js', out: 'dist/UserPage.js' },
     { src: 'src/components/user/AccountDataPage.js', out: 'dist/AccountDataPage.js' },
     { src: 'src/components/user/SentimentDetailPage.js', out: 'dist/SentimentDetailPage.js' },
