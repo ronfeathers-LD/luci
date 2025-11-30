@@ -211,7 +211,7 @@ export async function POST(request) {
         const contactText = formatContactDataForEmbedding(contact);
         if (contactText) {
           try {
-            const embedding = await generateEmbedding(contactText, apiKey);
+            const embedding = await generateEmbedding(contactText, openaiApiKey, geminiApiKey);
             embeddingsToInsert.push({
               account_id: accountId,
               salesforce_account_id: salesforceAccountId,
@@ -242,7 +242,7 @@ export async function POST(request) {
         const caseText = formatCaseDataForEmbedding(caseData);
         if (caseText) {
           try {
-            const embedding = await generateEmbedding(caseText, apiKey);
+            const embedding = await generateEmbedding(caseText, openaiApiKey, geminiApiKey);
             embeddingsToInsert.push({
               account_id: accountId,
               salesforce_account_id: salesforceAccountId,
@@ -281,7 +281,7 @@ export async function POST(request) {
             const chunkTextWithContext = `Meeting Subject: ${transcription.meetingSubject || 'N/A'}\nDate: ${transcription.meetingDate || 'N/A'}\n\nTranscript (Part ${i + 1}/${chunks.length}):\n${chunk}`;
             
             try {
-              const embedding = await generateEmbedding(chunkTextWithContext, apiKey);
+              const embedding = await generateEmbedding(chunkTextWithContext, openaiApiKey, geminiApiKey);
               embeddingsToInsert.push({
                 account_id: accountId,
                 salesforce_account_id: salesforceAccountId,
@@ -314,7 +314,7 @@ export async function POST(request) {
         const sentimentText = formatSentimentDataForEmbedding(sentiment);
         if (sentimentText) {
           try {
-            const embedding = await generateEmbedding(sentimentText, apiKey);
+            const embedding = await generateEmbedding(sentimentText, openaiApiKey, geminiApiKey);
             embeddingsToInsert.push({
               account_id: accountId,
               salesforce_account_id: salesforceAccountId,
