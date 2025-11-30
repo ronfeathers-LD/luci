@@ -245,9 +245,14 @@ export function formatCaseDataForEmbedding(caseData) {
 export function formatTranscriptionDataForEmbedding(transcription) {
   const parts = [];
   
-  if (transcription.meetingSubject) parts.push(`Meeting Subject: ${transcription.meetingSubject}`);
-  if (transcription.meetingDate) parts.push(`Date: ${transcription.meetingDate}`);
-  if (transcription.transcriptionText) parts.push(`\nTranscript:\n${transcription.transcriptionText}`);
+  // Handle different field name variations
+  const meetingSubject = transcription.meetingSubject || transcription.meeting?.subject || transcription.subject;
+  const meetingDate = transcription.meetingDate || transcription.meeting?.meeting_date || transcription.meeting_date;
+  const transcriptText = transcription.transcriptionText || transcription.transcription || transcription.transcript || transcription.text || '';
+  
+  if (meetingSubject) parts.push(`Meeting Subject: ${meetingSubject}`);
+  if (meetingDate) parts.push(`Date: ${meetingDate}`);
+  if (transcriptText) parts.push(`\nTranscript:\n${transcriptText}`);
 
   return parts.join('\n');
 }

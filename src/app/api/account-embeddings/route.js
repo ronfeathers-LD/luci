@@ -273,9 +273,16 @@ export async function POST(request) {
       log(`Processing ${data.transcriptions.length} transcriptions for embedding`);
       for (const transcription of data.transcriptions) {
         // Check for transcription text in various possible fields
-        const rawTranscript = transcription.transcriptionText || transcription.transcript || transcription.text || '';
+        // The API returns 'transcription' but we also check other variations
+        const rawTranscript = transcription.transcriptionText || 
+                              transcription.transcription || 
+                              transcription.transcript || 
+                              transcription.text || 
+                              (transcription.meeting && transcription.meeting.transcription) || 
+                              '';
         const transcriptionText = formatTranscriptionDataForEmbedding(transcription);
         if (transcriptionText && rawTranscript) {
+          log(`Processing transcription with ${rawTranscript.length} characters`);
           // Chunk long transcriptions
           const chunks = chunkText(rawTranscript, 1000, 100);
           
