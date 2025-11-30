@@ -126,12 +126,6 @@ export async function POST(request) {
       return sendErrorResponse(new Error(validation.error.message), validation.error.status);
     }
 
-    // Verify account access
-    const hasAccess = await verifyAccountAccess(supabase, userId, accountId);
-    if (!hasAccess) {
-      return sendErrorResponse(new Error('Access denied to this account'), 403);
-    }
-
     // If accountId looks like a Salesforce ID (no dashes), find the UUID
     let actualAccountId = accountId;
     if (!accountId.includes('-')) {
@@ -147,6 +141,12 @@ export async function POST(request) {
       }
       
       actualAccountId = accountBySalesforceId.id;
+    }
+
+    // Verify account access
+    const hasAccess = await verifyAccountAccess(supabase, userId, actualAccountId);
+    if (!hasAccess) {
+      return sendErrorResponse(new Error('Access denied to this account'), 403);
     }
 
     // Get account info for salesforce_account_id
