@@ -228,12 +228,12 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
           {/* Tabs */}
           <div className="bg-lean-white rounded-lg shadow-lg mb-6 overflow-hidden">
             <div className="border-b border-lean-black/10">
-              <nav className="flex overflow-x-auto">
+              <nav className="flex flex-wrap gap-0">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
+                    className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                       activeTab === tab.id
                         ? 'text-lean-green border-b-2 border-lean-green bg-lean-green/5'
                         : 'text-lean-black-70 hover:text-lean-black hover:bg-lean-almost-white'
