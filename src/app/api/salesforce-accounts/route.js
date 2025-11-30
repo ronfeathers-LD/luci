@@ -545,7 +545,7 @@ async function getCachedAccounts(supabase, userId, email, role) {
       }
 
       return {
-        id: account.salesforce_id || account.id,
+        id: account.id, // Always use the UUID from database
         salesforceId: account.salesforce_id,
         name: account.name,
         accountTier: account.account_tier,
@@ -657,7 +657,7 @@ export async function GET(request) {
         const syncedAccounts = await syncAccountsToSupabase(supabase, searchResults, null, false);
         
         const accounts = syncedAccounts.map(acc => ({
-          id: acc.salesforce_id || acc.id,
+          id: acc.id, // Always use the UUID from database
           salesforceId: acc.salesforce_id,
           name: acc.name,
           accountTier: acc.account_tier,
