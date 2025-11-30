@@ -15,18 +15,24 @@ export async function verifyAccountAccess(supabase, userId, accountId) {
     return false;
   }
 
+  // Use maybeSingle() to avoid errors when no record exists
   const { data, error } = await supabase
     .from('user_accounts')
     .select('id')
     .eq('user_id', userId)
     .eq('account_id', accountId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
+  // Return false if error or no data found
+  if (error) {
+    // Log non-PGRST116 errors (PGRST116 is "not found" which is expected)
+    if (error.code !== 'PGRST116') {
+      console.error('Error verifying account access:', error);
+    }
     return false;
   }
 
-  return true;
+  return !!data;
 }
 
 /**

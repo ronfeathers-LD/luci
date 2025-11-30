@@ -60,6 +60,34 @@ export async function POST(request) {
     // Verify account access
     const hasAccess = await verifyAccountAccess(supabase, userId, accountId);
     if (!hasAccess) {
+      logError('Account access denied', { userId, accountId });
+      // Check if account exists
+      const { data: accountCheck } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('id', accountId)
+        .single();
+      
+      if (!accountCheck) {
+        return sendErrorResponse(new Error('Account not found'), 404);
+      }
+      
+      // Check if user_accounts relationship exists
+      const { data: relationshipCheck } = await supabase
+        .from('user_accounts')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('account_id', accountId)
+        .maybeSingle();
+      
+      if (!relationshipCheck) {
+        logError('No user_accounts relationship found', { userId, accountId });
+        return sendErrorResponse(
+          new Error('You do not have access to this account. Please add it to your account list first.'), 
+          403
+        );
+      }
+      
       return sendErrorResponse(new Error('Access denied to this account'), 403);
     }
 

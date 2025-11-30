@@ -186,9 +186,16 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
     <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-lean-white rounded-lg shadow-2xl flex flex-col z-50 border border-lean-gray-light">
       {/* Header */}
       <div className="bg-lean-green text-lean-white p-4 rounded-t-lg flex justify-between items-center">
-        <div>
-          <h3 className="font-semibold">Account Assistant</h3>
-          <p className="text-sm text-lean-white/80">{accountName}</p>
+        <div className="flex items-center gap-3">
+          <img 
+            src="/luci.png" 
+            alt="LUCI" 
+            className="w-10 h-10 rounded-full object-cover"
+          />
+          <div>
+            <h3 className="font-semibold">LUCI</h3>
+            <p className="text-sm text-lean-white/80">{accountName}</p>
+          </div>
         </div>
         <button
           onClick={() => setIsOpen(false)}
@@ -235,8 +242,15 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
         {messages.map((message, idx) => (
           <div
             key={idx}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex items-start gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
+            {message.role !== 'user' && (
+              <img 
+                src="/luci.png" 
+                alt="LUCI" 
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+              />
+            )}
             <div
               className={`max-w-[80%] rounded-lg px-4 py-2 ${
                 message.role === 'user'
@@ -248,11 +262,21 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
             >
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
             </div>
+            {message.role === 'user' && (
+              <div className="w-8 h-8 rounded-full bg-lean-green flex items-center justify-center text-lean-white text-sm font-semibold flex-shrink-0">
+                You
+              </div>
+            )}
           </div>
         ))}
 
         {loading && (
-          <div className="flex justify-start">
+          <div className="flex items-start gap-2 justify-start">
+            <img 
+              src="/luci.png" 
+              alt="LUCI" 
+              className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+            />
             <div className="bg-lean-gray-light rounded-lg px-4 py-2">
               <LoaderIcon className="w-4 h-4 animate-spin" />
             </div>
