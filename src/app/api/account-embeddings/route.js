@@ -329,49 +329,49 @@ export async function POST(request) {
 
     // Check if we have any embeddings generated
     if (embeddingsToInsert.length === 0) {
+      if (rateLimitError) {
+        return sendErrorResponse(
+          new Error('Rate limit exceeded: Unable to generate embeddings. The Gemini API free tier has limited quota. Please try again later or upgrade your API plan.'),
+          429
+        );
+      }
       return sendSuccessResponse({
         message: 'No data to embed',
         count: 0,
       });
     }
 
-    // All embeddings should have the embedding field if successful
-    // If we have any, proceed with insertion
-    if (embeddingsToInsert.length > 0) {
+    // Delete existing embeddings for this account (refresh)
+    const { error: deleteError } = await supabase
+      .from('account_embeddings')
+      .delete()
+      .eq('account_id', actualAccountId);
 
-      // Delete existing embeddings for this account (refresh)
-      const { error: deleteError } = await supabase
-        .from('account_embeddings')
-        .delete()
-        .eq('account_id', actualAccountId);
-
-      if (deleteError) {
-        logError('Error deleting existing embeddings:', deleteError);
-        // Continue anyway - we'll just add new ones
-      }
-
-      // Insert new embeddings
-      const { data: inserted, error: insertError } = await supabase
-        .from('account_embeddings')
-        .insert(embeddingsToInsert)
-        .select();
-
-      if (insertError) {
-        logError('Error inserting embeddings:', insertError);
-        return sendErrorResponse(new Error('Failed to store embeddings'), 500);
-      }
-
-      return sendSuccessResponse({
-        message: 'Embeddings generated and stored successfully',
-        count: inserted?.length || 0,
-      });
-    } else {
-      // No embeddings were generated - likely all failed due to rate limits
-      return sendErrorResponse(
-        new Error('Failed to generate embeddings. The Gemini API free tier has limited quota. Please try again later or upgrade your API plan.'),
-        429
-      );
+    if (deleteError) {
+      logError('Error deleting existing embeddings:', deleteError);
+      // Continue anyway - we'll just add new ones
     }
+
+    // Insert new embeddings
+    const { data: inserted, error: insertError } = await supabase
+      .from('account_embeddings')
+      .insert(embeddingsToInsert)
+      .select();
+
+    if (insertError) {
+      logError('Error inserting embeddings:', insertError);
+      return sendErrorResponse(new Error('Failed to store embeddings'), 500);
+    }
+
+    const message = failedCount > 0
+      ? `Generated ${inserted?.length || 0} embeddings successfully (${failedCount} failed due to rate limits)`
+      : 'Embeddings generated and stored successfully';
+
+    return sendSuccessResponse({
+      message,
+      count: inserted?.length || 0,
+      failed: failedCount,
+    });
   } catch (error) {
     logError('Error in POST /api/account-embeddings:', error);
     return sendErrorResponse(error, 500);
