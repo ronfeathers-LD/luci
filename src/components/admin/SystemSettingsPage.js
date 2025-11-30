@@ -1338,7 +1338,7 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
 // Chatbot Prompts Section Component
 const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
   const [localValues, setLocalValues] = useState({});
-  const [expandedSection, setExpandedSection] = useState(null);
+  const [expandedSection, setExpandedSection] = useState('base'); // Default to 'base' section expanded
 
   // Debug: Log settings on mount and when they change
   useEffect(() => {
@@ -1543,11 +1543,12 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
                       value={getValue(field.key, field.defaultValue)}
                       onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
                       onBlur={() => {
-                        const value = getValue(field.key, field.defaultValue);
-                        handleSave(field.parentKey, field.key, value);
+                        const currentValue = getValue(field.key, field.defaultValue);
+                        handleSave(field.parentKey, field.key, currentValue);
                       }}
                       className="w-full h-48 px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green text-sm font-mono"
                       disabled={saving}
+                      placeholder={field.defaultValue}
                     />
                   ) : (
                     <input
@@ -1555,11 +1556,12 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
                       value={getValue(field.key, field.defaultValue)}
                       onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
                       onBlur={() => {
-                        const value = getValue(field.key, field.defaultValue);
-                        handleSave(field.parentKey, field.key, value);
+                        const currentValue = getValue(field.key, field.defaultValue);
+                        handleSave(field.parentKey, field.key, currentValue);
                       }}
                       className="w-full px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green"
                       disabled={saving}
+                      placeholder={field.defaultValue}
                     />
                   )}
                 </div>
