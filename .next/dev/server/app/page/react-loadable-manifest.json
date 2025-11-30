@@ -1,0 +1,17 @@
+{
+  "[project]/src/components/auth/LoginPage.js [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/auth/LoginPage.js [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_9e0d2419._.js",
+      "static/chunks/src_components_auth_LoginPage_725ff8bc.js"
+    ]
+  },
+  "[project]/src/components/Dashboard.js [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/Dashboard.js [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_07f1211f._.js",
+      "static/chunks/node_modules_next_dist_02409dcd._.js",
+      "static/chunks/src_components_Dashboard_725ff8bc.js"
+    ]
+  }
+}

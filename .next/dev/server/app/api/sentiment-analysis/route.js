@@ -1,0 +1,10 @@
+var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/sentiment-analysis/route.js")
+R.c("server/chunks/node_modules_next_add262c9._.js")
+R.c("server/chunks/node_modules_@supabase_realtime-js_dist_module_c091b52e._.js")
+R.c("server/chunks/node_modules_@supabase_storage-js_dist_module_829f4f3c._.js")
+R.c("server/chunks/node_modules_@supabase_auth-js_dist_module_b36180bc._.js")
+R.c("server/chunks/node_modules_8e176b1d._.js")
+R.c("server/chunks/[root-of-the-server]__87c5b915._.js")
+R.c("server/chunks/_next-internal_server_app_api_sentiment-analysis_route_actions_e3425744.js")
+R.m("[project]/node_modules/next/dist/esm/build/templates/app-route.js { INNER_APP_ROUTE => \"[project]/src/app/api/sentiment-analysis/route.js [app-route] (ecmascript)\" } [app-route] (ecmascript)")
+module.exports=R.m("[project]/node_modules/next/dist/esm/build/templates/app-route.js { INNER_APP_ROUTE => \"[project]/src/app/api/sentiment-analysis/route.js [app-route] (ecmascript)\" } [app-route] (ecmascript)").exports

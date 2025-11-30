@@ -1,0 +1,10 @@
+{
+  "[project]/src/components/SentimentAnalyzer.js [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/SentimentAnalyzer.js [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_a061dd93._.js",
+      "static/chunks/node_modules_next_dist_02409dcd._.js",
+      "static/chunks/src_components_SentimentAnalyzer_f43faf06.js"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "[project]/src/components/calendar/CalendarPage.js [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/calendar/CalendarPage.js [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_a95306ee._.js",
+      "static/chunks/node_modules_next_dist_02409dcd._.js",
+      "static/chunks/src_components_calendar_CalendarPage_1c69387d.js"
+    ]
+  }
+}

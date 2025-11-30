@@ -1,0 +1,10 @@
+{
+  "[project]/src/components/user/UserPage.js [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/user/UserPage.js [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_fa417bfc._.js",
+      "static/chunks/node_modules_next_dist_02409dcd._.js",
+      "static/chunks/src_components_user_UserPage_cc698ac2.js"
+    ]
+  }
+}
