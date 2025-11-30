@@ -1340,19 +1340,30 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
   const [expandedSection, setExpandedSection] = useState(null);
 
   const getValue = (key, defaultValue = '') => {
+    // Check local values first (unsaved changes)
     if (localValues[`PROMPT_BASE_${key}`] !== undefined) {
       return localValues[`PROMPT_BASE_${key}`];
     }
     if (localValues[`PROMPT_TEMPLATE_${key}`] !== undefined) {
       return localValues[`PROMPT_TEMPLATE_${key}`];
     }
-    // Handle nested JSONB structure
-    if (settings.PROMPT_BASE?.value && typeof settings.PROMPT_BASE.value === 'object') {
-      return settings.PROMPT_BASE.value[key] || defaultValue;
+    
+    // Handle nested JSONB structure from database
+    // settings should be the chatbot category object: { PROMPT_BASE: { value: {...} }, PROMPT_TEMPLATE: { value: {...} } }
+    if (settings?.PROMPT_BASE?.value && typeof settings.PROMPT_BASE.value === 'object') {
+      const value = settings.PROMPT_BASE.value[key];
+      if (value !== undefined && value !== null) {
+        return value;
+      }
     }
-    if (settings.PROMPT_TEMPLATE?.value && typeof settings.PROMPT_TEMPLATE.value === 'object') {
-      return settings.PROMPT_TEMPLATE.value[key] || defaultValue;
+    if (settings?.PROMPT_TEMPLATE?.value && typeof settings.PROMPT_TEMPLATE.value === 'object') {
+      const value = settings.PROMPT_TEMPLATE.value[key];
+      if (value !== undefined && value !== null) {
+        return value;
+      }
     }
+    
+    // Fallback to default value
     return defaultValue;
   };
 
@@ -1423,12 +1434,26 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     },
   ];
 
+  // Debug: Log settings to see what we're receiving
+  if (typeof window !== 'undefined' && Object.keys(settings).length === 0) {
+    console.log('ChatbotPromptsSection: No settings received. Settings object:', settings);
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-lean-black mb-6">Chatbot Prompts</h2>
       <p className="text-lean-black-70 mb-6">
         Manage LUCI's system prompts. Changes take effect immediately for new chat sessions.
       </p>
+      
+      {Object.keys(settings).length === 0 && (
+        <div className="mb-4 p-4 bg-lean-yellow/20 border border-lean-yellow rounded-lg">
+          <p className="text-sm text-lean-black">
+            <strong>No prompt settings found.</strong> The migration may not have run, or the settings haven't been created yet. 
+            Please run the migration <code>023_add_chatbot_prompt_settings.sql</code> in your Supabase SQL Editor.
+          </p>
+        </div>
+      )}
 
       {promptSections.map((section) => (
         <div key={section.id} className="mb-8 border border-lean-gray-light rounded-lg p-6">
