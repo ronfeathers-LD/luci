@@ -122,8 +122,10 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
       });
 
       if (response.ok) {
-        await checkEmbeddings();
-        addMessage('system', 'Embeddings generated successfully! You can now ask questions about this account.');
+        const result = await response.json();
+        // Update embeddings status
+        setHasEmbeddings(true);
+        addMessage('system', `Embeddings generated successfully! Processed ${result.count || 0} data chunks. You can now ask questions about this account.`);
       } else {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || 'Failed to generate embeddings');
@@ -231,8 +233,11 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {hasEmbeddings === false && (
           <div className="bg-lean-yellow/20 border border-lean-yellow rounded-lg p-4">
+            <p className="text-sm font-semibold text-lean-black mb-2">
+              First-time setup required
+            </p>
             <p className="text-sm text-lean-black mb-3">
-              No embeddings found for this account. Generate embeddings to enable the chatbot.
+              To enable LUCI's chatbot, we need to process this account's data (contacts, cases, meetings, and sentiment analyses) into a searchable format. This is a one-time process that typically takes 30-60 seconds.
             </p>
             <button
               onClick={generateEmbeddings}
@@ -242,7 +247,7 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
               {generatingEmbeddings ? (
                 <span className="flex items-center justify-center">
                   <LoaderIcon className="w-4 h-4 mr-2" />
-                  Generating...
+                  Generating embeddings...
                 </span>
               ) : (
                 'Generate Embeddings'
@@ -343,7 +348,7 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
           />
           <button
             type="submit"
-            disabled={loading || !input.trim() || hasEmbeddings === false}
+            disabled={loading || !input.trim() || hasEmbeddings === false || generatingEmbeddings}
             className="bg-lean-green text-lean-white px-4 py-2 rounded-lg hover:bg-lean-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
