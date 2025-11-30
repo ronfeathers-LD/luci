@@ -1334,5 +1334,172 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
   );
 };
 
+// Chatbot Prompts Section Component
+const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
+  const [localValues, setLocalValues] = useState({});
+  const [expandedSection, setExpandedSection] = useState(null);
+
+  const getValue = (key, defaultValue = '') => {
+    if (localValues[`PROMPT_BASE_${key}`] !== undefined) {
+      return localValues[`PROMPT_BASE_${key}`];
+    }
+    if (localValues[`PROMPT_TEMPLATE_${key}`] !== undefined) {
+      return localValues[`PROMPT_TEMPLATE_${key}`];
+    }
+    // Handle nested JSONB structure
+    if (settings.PROMPT_BASE?.value && typeof settings.PROMPT_BASE.value === 'object') {
+      return settings.PROMPT_BASE.value[key] || defaultValue;
+    }
+    if (settings.PROMPT_TEMPLATE?.value && typeof settings.PROMPT_TEMPLATE.value === 'object') {
+      return settings.PROMPT_TEMPLATE.value[key] || defaultValue;
+    }
+    return defaultValue;
+  };
+
+  const handleChange = (key, value, parentKey = 'PROMPT_BASE') => {
+    setLocalValues(prev => ({
+      ...prev,
+      [`${parentKey}_${key}`]: value,
+    }));
+  };
+
+  const handleSave = async (parentKey, key, value) => {
+    // Get current value from settings
+    const currentSetting = settings[parentKey];
+    if (!currentSetting) return;
+
+    // Update the nested JSONB value
+    const currentValue = currentSetting.value || {};
+    const updatedValue = {
+      ...currentValue,
+      [key]: value,
+    };
+
+    await onUpdate('chatbot', parentKey, updatedValue);
+    
+    // Clear local value after save
+    setLocalValues(prev => {
+      const newState = { ...prev };
+      delete newState[`${parentKey}_${key}`];
+      return newState;
+    });
+  };
+
+  const promptSections = [
+    {
+      id: 'base',
+      title: 'Base Prompt Components',
+      description: 'Core prompt elements that are combined to create the full prompt',
+      fields: [
+        { key: 'intro', label: 'Introduction', type: 'textarea', parentKey: 'PROMPT_BASE', 
+          defaultValue: 'You are LUCI, an AI assistant helping {role_type} work with the {account_name} account.',
+          description: 'Opening line of the prompt. Use {role_type} and {account_name} as variables.' },
+        { key: 'role_guidance_csm', label: 'CSM Role Guidance', type: 'textarea', parentKey: 'PROMPT_BASE',
+          defaultValue: '**Your Role: Customer Success Manager (CSM)**\nYour primary focus is ensuring customer satisfaction, retention, and growth.',
+          description: 'Guidance text shown to Customer Success Managers' },
+        { key: 'role_guidance_am', label: 'Account Manager Role Guidance', type: 'textarea', parentKey: 'PROMPT_BASE',
+          defaultValue: '**Your Role: Account Manager (Sales)**\nYour primary focus is building relationships, driving revenue, and managing the sales cycle.',
+          description: 'Guidance text shown to Account Managers' },
+        { key: 'response_style', label: 'Response Style Guidelines', type: 'textarea', parentKey: 'PROMPT_BASE',
+          defaultValue: '1. **Be Proactive & Actionable**: Don\'t just report data - provide specific next steps\n2. **Daily Activities**: When asked about daily activities, provide a prioritized list...',
+          description: 'Instructions on how LUCI should respond. Use {role_specific_guidance} as a variable.' },
+        { key: 'role_specific_csm', label: 'CSM-Specific Guidance', type: 'textarea', parentKey: 'PROMPT_BASE',
+          defaultValue: '- Focus on customer health, satisfaction, and retention\n- Identify at-risk accounts...',
+          description: 'Specific guidance for CSM role' },
+        { key: 'role_specific_am', label: 'Account Manager-Specific Guidance', type: 'textarea', parentKey: 'PROMPT_BASE',
+          defaultValue: '- Focus on relationship building and revenue opportunities\n- Identify decision-makers...',
+          description: 'Specific guidance for Account Manager role' },
+      ],
+    },
+    {
+      id: 'template',
+      title: 'Prompt Template',
+      description: 'Template that combines base components with dynamic data. Available variables: {intro}, {role_guidance}, {context}, {data_type_totals}, {data_type_counts}, {health_indicators}, {response_style}, {role_type}, {account_name}',
+      fields: [
+        { key: 'intro', label: 'Full Prompt Template', type: 'textarea', parentKey: 'PROMPT_TEMPLATE',
+          defaultValue: '{intro}\n\n{role_guidance}\n\n**Account Context:**\n{context}\n\n...',
+          description: 'Complete prompt template with variable placeholders' },
+      ],
+    },
+  ];
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-lean-black mb-6">Chatbot Prompts</h2>
+      <p className="text-lean-black-70 mb-6">
+        Manage LUCI's system prompts. Changes take effect immediately for new chat sessions.
+      </p>
+
+      {promptSections.map((section) => (
+        <div key={section.id} className="mb-8 border border-lean-gray-light rounded-lg p-6">
+          <div 
+            className="flex justify-between items-center cursor-pointer"
+            onClick={() => setExpandedSection(expandedSection === section.id ? null : section.id)}
+          >
+            <div>
+              <h3 className="text-xl font-semibold text-lean-black mb-2">{section.title}</h3>
+              <p className="text-sm text-lean-black-70">{section.description}</p>
+            </div>
+            <svg 
+              className={`w-5 h-5 text-lean-black-70 transition-transform ${expandedSection === section.id ? 'rotate-180' : ''}`}
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+
+          {expandedSection === section.id && (
+            <div className="mt-6 space-y-6">
+              {section.fields.map((field) => (
+                <div key={field.key}>
+                  <label className="block text-sm font-semibold text-lean-black mb-2">
+                    {field.label}
+                  </label>
+                  {field.description && (
+                    <p className="text-xs text-lean-black-60 mb-2">{field.description}</p>
+                  )}
+                  {field.type === 'textarea' ? (
+                    <textarea
+                      value={getValue(field.key, field.defaultValue)}
+                      onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
+                      onBlur={() => {
+                        const value = getValue(field.key, field.defaultValue);
+                        handleSave(field.parentKey, field.key, value);
+                      }}
+                      className="w-full h-48 px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green text-sm font-mono"
+                      disabled={saving}
+                    />
+                  ) : (
+                    <input
+                      type={field.type || 'text'}
+                      value={getValue(field.key, field.defaultValue)}
+                      onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
+                      onBlur={() => {
+                        const value = getValue(field.key, field.defaultValue);
+                        handleSave(field.parentKey, field.key, value);
+                      }}
+                      className="w-full px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green"
+                      disabled={saving}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="mt-6 p-4 bg-lean-yellow/20 border border-lean-yellow rounded-lg">
+        <p className="text-sm text-lean-black">
+          <strong>Note:</strong> Changes to prompts take effect immediately for new chat sessions. 
+          Existing chat sessions will continue using the prompt that was active when they started.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export default SystemSettingsPage;
 
