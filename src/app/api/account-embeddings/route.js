@@ -162,6 +162,8 @@ export async function POST(request) {
 
     const salesforceAccountId = account.salesforce_id;
     const embeddingsToInsert = [];
+    let failedCount = 0;
+    let rateLimitError = false;
 
     // Process account data
     if (data.account) {
@@ -184,7 +186,10 @@ export async function POST(request) {
           });
         } catch (err) {
           logError('Error generating account embedding:', err);
-          // Track failure but don't add to insert array
+          failedCount++;
+          if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
+            rateLimitError = true;
+          }
         }
       }
     }
@@ -211,7 +216,10 @@ export async function POST(request) {
             });
         } catch (err) {
           logError(`Error generating contact embedding for ${contact.email}:`, err);
-          // Continue with other contacts - don't fail entire batch
+          failedCount++;
+          if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
+            rateLimitError = true;
+          }
         }
         }
       }
@@ -240,7 +248,10 @@ export async function POST(request) {
             });
           } catch (err) {
             logError(`Error generating case embedding for ${caseData.caseNumber}:`, err);
-            // Continue with other cases - don't fail entire batch
+            failedCount++;
+            if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
+              rateLimitError = true;
+            }
           }
         }
       }
@@ -276,7 +287,10 @@ export async function POST(request) {
               });
             } catch (err) {
               logError(`Error generating transcription embedding chunk ${i}:`, err);
-              // Continue with other chunks - don't fail entire batch
+              failedCount++;
+              if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
+                rateLimitError = true;
+              }
             }
           }
         }
@@ -304,7 +318,10 @@ export async function POST(request) {
             });
           } catch (err) {
             logError(`Error generating sentiment embedding:`, err);
-            // Continue with other sentiment analyses - don't fail entire batch
+            failedCount++;
+            if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
+              rateLimitError = true;
+            }
           }
         }
       }
