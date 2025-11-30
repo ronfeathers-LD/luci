@@ -133,7 +133,8 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
         
         // Check if it's a rate limit error
         if (response.status === 429 || errorMsg.includes('rate limit') || errorMsg.includes('quota')) {
-          throw new Error('API rate limit exceeded. The Gemini API free tier has limited quota. Please try again in a few hours or upgrade your API plan.');
+          // Show the actual error message from the server (it will indicate which API)
+          throw new Error(errorMsg || 'API rate limit exceeded. Please try again later.');
         }
         
         throw new Error(errorMsg);

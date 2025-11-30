@@ -104,7 +104,12 @@ export async function POST(request) {
   const openaiApiKey = process.env.OPENAI_API_KEY;
   const geminiApiKey = process.env.GEMINI_API_KEY;
   
-  if (!openaiApiKey && !geminiApiKey) {
+  // Log which API we're using (without exposing keys)
+  if (openaiApiKey) {
+    log('Using OpenAI for embeddings (OPENAI_API_KEY found)');
+  } else if (geminiApiKey) {
+    log('Using Gemini for embeddings (fallback - OPENAI_API_KEY not found)');
+  } else {
     logError('No embedding API key available. Please set OPENAI_API_KEY or GEMINI_API_KEY');
     return sendErrorResponse(new Error('Server configuration error: No embedding API key found'), 500);
   }
@@ -189,8 +194,12 @@ export async function POST(request) {
         } catch (err) {
           logError('Error generating account embedding:', err);
           failedCount++;
+          // Check which API failed
+          const isOpenAIError = err.message && err.message.includes('OpenAI');
+          const isGeminiError = err.message && err.message.includes('Gemini');
           if (err.message && (err.message.includes('rate limit') || err.message.includes('quota'))) {
             rateLimitError = true;
+            logError(`Rate limit error from ${isOpenAIError ? 'OpenAI' : isGeminiError ? 'Gemini' : 'unknown API'}`);
           }
         }
       }
@@ -332,10 +341,11 @@ export async function POST(request) {
     // Check if we have any embeddings generated
     if (embeddingsToInsert.length === 0) {
       if (rateLimitError) {
-        return sendErrorResponse(
-          new Error('Rate limit exceeded: Unable to generate embeddings. The Gemini API free tier has limited quota. Please try again later or upgrade your API plan.'),
-          429
-        );
+        const apiUsed = openaiApiKey ? 'OpenAI' : 'Gemini';
+        const errorMsg = openaiApiKey
+          ? 'Rate limit exceeded: Unable to generate embeddings with OpenAI. Please try again later or check your OpenAI account limits.'
+          : 'Rate limit exceeded: Unable to generate embeddings. The Gemini API free tier has limited quota. Please add OPENAI_API_KEY to Vercel environment variables for better rate limits, or try again later.';
+        return sendErrorResponse(new Error(errorMsg), 429);
       }
       return sendSuccessResponse({
         message: 'No data to embed',
