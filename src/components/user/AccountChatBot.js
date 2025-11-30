@@ -245,9 +245,9 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
         {/* Generate Embeddings Button - Always visible in header */}
         <button
           onClick={generateEmbeddings}
-          disabled={generatingEmbeddings || hasEmbeddings === true}
+          disabled={generatingEmbeddings}
           className="w-full bg-lean-white/20 hover:bg-lean-white/30 text-lean-white text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          title={hasEmbeddings === true ? "Embeddings already generated" : "Generate embeddings for this account"}
+          title={hasEmbeddings === true ? "Regenerate embeddings for this account" : "Generate embeddings for this account"}
         >
           {generatingEmbeddings ? (
             <>
@@ -257,9 +257,9 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
           ) : hasEmbeddings === true ? (
             <>
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span>Embeddings Ready</span>
+              <span>Regenerate Embeddings</span>
             </>
           ) : (
             <>
