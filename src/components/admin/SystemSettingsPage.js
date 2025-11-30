@@ -225,30 +225,30 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="bg-lean-white rounded-lg shadow-lg mb-6 overflow-hidden">
-            <div className="border-b border-lean-black/10">
-              <nav className="flex flex-wrap gap-0">
+          {/* Settings Layout with Left Navigation */}
+          <div className="flex gap-6">
+            {/* Left Navigation */}
+            <div className="w-64 flex-shrink-0">
+              <nav className="bg-lean-white rounded-lg shadow-lg p-2">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
+                    className={`w-full text-left px-4 py-3 text-sm font-medium transition-colors rounded-lg mb-1 flex items-center gap-3 ${
                       activeTab === tab.id
-                        ? 'text-lean-green border-b-2 border-lean-green bg-lean-green/5'
+                        ? 'text-lean-green bg-lean-green/10 border-l-4 border-lean-green'
                         : 'text-lean-black-70 hover:text-lean-black hover:bg-lean-almost-white'
                     }`}
                   >
-                    <span className="mr-2">{tab.icon}</span>
-                    {tab.label}
+                    <span className="text-lg">{tab.icon}</span>
+                    <span>{tab.label}</span>
                   </button>
                 ))}
               </nav>
             </div>
-          </div>
 
-          {/* Tab Content */}
-          <div className="bg-lean-white rounded-lg shadow-lg p-6">
+            {/* Tab Content */}
+            <div className="flex-1 bg-lean-white rounded-lg shadow-lg p-6">
             {activeTab === 'cache' && (
               <CacheSettingsSection
                 settings={settings.cache || {}}
@@ -306,6 +306,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
             {activeTab === 'system' && (
               <SystemInfoSection />
             )}
+            </div>
           </div>
         </div>
       </main>
