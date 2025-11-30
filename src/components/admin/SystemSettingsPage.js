@@ -1345,9 +1345,10 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     console.log('ChatbotPromptsSection settings:', settings);
     console.log('PROMPT_BASE:', settings?.PROMPT_BASE);
     console.log('PROMPT_TEMPLATE:', settings?.PROMPT_TEMPLATE);
-    if (settings?.PROMPT_BASE?.value) {
+    if (settings?.PROMPT_BASE) {
+      console.log('PROMPT_BASE structure:', Object.keys(settings.PROMPT_BASE));
       console.log('PROMPT_BASE.value:', settings.PROMPT_BASE.value);
-      console.log('Type:', typeof settings.PROMPT_BASE.value);
+      console.log('PROMPT_BASE.value type:', typeof settings.PROMPT_BASE.value);
     }
   }, [settings]);
 
@@ -1361,46 +1362,63 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     }
     
     // Handle nested JSONB structure from database
-    // settings should be the chatbot category object: { PROMPT_BASE: { value: {...} }, PROMPT_TEMPLATE: { value: {...} } }
+    // API returns: { PROMPT_BASE: { value: {...}, id, description, ... }, PROMPT_TEMPLATE: { value: {...}, ... } }
     if (settings?.PROMPT_BASE?.value) {
-      // Check if value is a string (needs parsing) or already an object
-      let baseValue = settings.PROMPT_BASE.value;
-      if (typeof baseValue === 'string') {
-        try {
-          baseValue = JSON.parse(baseValue);
-        } catch (e) {
-          console.error('Error parsing PROMPT_BASE.value:', e);
+      // Value is already an object from JSONB
+      const baseValue = settings.PROMPT_BASE.value;
+      
+      // If it's already an object, use it directly
+      if (typeof baseValue === 'object' && baseValue !== null && !Array.isArray(baseValue)) {
+        const value = baseValue[key];
+        if (value !== undefined && value !== null && value !== '') {
+          console.log(`Found value for ${key}:`, value.substring(0, 50) + '...');
+          return value;
         }
       }
       
-      if (typeof baseValue === 'object' && baseValue !== null) {
-        const value = baseValue[key];
-        if (value !== undefined && value !== null) {
-          return value;
+      // If it's a string, try to parse it
+      if (typeof baseValue === 'string') {
+        try {
+          const parsed = JSON.parse(baseValue);
+          if (typeof parsed === 'object' && parsed !== null) {
+            const value = parsed[key];
+            if (value !== undefined && value !== null && value !== '') {
+              return value;
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing PROMPT_BASE.value:', e);
         }
       }
     }
     
     if (settings?.PROMPT_TEMPLATE?.value) {
-      // Check if value is a string (needs parsing) or already an object
-      let templateValue = settings.PROMPT_TEMPLATE.value;
-      if (typeof templateValue === 'string') {
-        try {
-          templateValue = JSON.parse(templateValue);
-        } catch (e) {
-          console.error('Error parsing PROMPT_TEMPLATE.value:', e);
+      const templateValue = settings.PROMPT_TEMPLATE.value;
+      
+      if (typeof templateValue === 'object' && templateValue !== null && !Array.isArray(templateValue)) {
+        const value = templateValue[key];
+        if (value !== undefined && value !== null && value !== '') {
+          return value;
         }
       }
       
-      if (typeof templateValue === 'object' && templateValue !== null) {
-        const value = templateValue[key];
-        if (value !== undefined && value !== null) {
-          return value;
+      if (typeof templateValue === 'string') {
+        try {
+          const parsed = JSON.parse(templateValue);
+          if (typeof parsed === 'object' && parsed !== null) {
+            const value = parsed[key];
+            if (value !== undefined && value !== null && value !== '') {
+              return value;
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing PROMPT_TEMPLATE.value:', e);
         }
       }
     }
     
     // Fallback to default value
+    console.log(`No value found for ${key}, using default`);
     return defaultValue;
   };
 
