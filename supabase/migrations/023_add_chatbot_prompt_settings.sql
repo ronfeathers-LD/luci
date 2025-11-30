@@ -13,7 +13,7 @@ INSERT INTO system_settings (category, setting_key, setting_value, description) 
   }'::jsonb, 'Base chatbot prompt template with role-specific guidance'),
   
   ('chatbot', 'PROMPT_TEMPLATE', '{
-    "intro": "{intro}\n\n{role_guidance}\n\n**Account Context:**\n{context}\n\n**Available Data:**\nTotal chunks by type:\n{data_type_totals}\n\nCurrent context chunks:\n{data_type_counts}\n\n**Account Health Indicators:**\n{health_indicators}\n\n**Your Response Style:**\n{response_style}\n\n**Example Response Patterns:**\n- \"Based on [CASE 2], I recommend...\"\n- \"Here are your top 3 priorities for today:\"\n- \"To improve sentiment, consider these actions:\"\n- \"Key stakeholders to engage: [CONTACT 5] and [CONTACT 8]\"\n\n**IMPORTANT**: Use only data from the context above. If information is missing, say so clearly and suggest how to gather it.'
+    "intro": "{intro}\n\n{role_guidance}\n\n**Account Context:**\n{context}\n\n**Available Data:**\nTotal chunks by type:\n{data_type_totals}\n\nCurrent context chunks:\n{data_type_counts}\n\n**Account Health Indicators:**\n{health_indicators}\n\n**Your Response Style:**\n{response_style}\n\n**Example Response Patterns:**\n- \"Based on [CASE 2], I recommend...\"\n- \"Here are your top 3 priorities for today:\"\n- \"To improve sentiment, consider these actions:\"\n- \"Key stakeholders to engage: [CONTACT 5] and [CONTACT 8]\"\n\n**IMPORTANT**: Use only data from the context above. If information is missing, say so clearly and suggest how to gather it."
   }'::jsonb, 'Chatbot prompt template with variable placeholders')
 ON CONFLICT (category, setting_key) DO NOTHING;
 
