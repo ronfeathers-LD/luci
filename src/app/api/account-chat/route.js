@@ -240,52 +240,83 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
       parts: [{ text: query }],
     });
 
-    // Call Gemini API
+    // Call Gemini API - try multiple models for compatibility
     let reply;
-    try {
-      const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || 'gemini-1.5-pro-latest', // Try user preference or latest
+      'gemini-1.5-pro-latest', // Latest stable version
+      'gemini-1.5-flash-latest', // Faster alternative
+      'gemini-pro', // Fallback to older model
+    ].filter((v, i, a) => a.indexOf(v) === i); // Remove duplicates
+    
+    let lastError = null;
+    
+    for (const modelName of modelsToTry) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
-      const requestBody = {
-        contents: contents,
-        generationConfig: {
-          temperature: 0.7,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 1024,
-        },
-      };
-      
-      log(`Calling Gemini API with ${contents.length} content items`);
+        const requestBody = {
+          contents: contents,
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          },
+        };
+        
+        log(`Calling Gemini API with model ${modelName} and ${contents.length} content items`);
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        logError('Gemini API error:', { status: response.status, statusText: response.statusText, error: errorData });
-        return sendErrorResponse(
-          new Error(`Gemini API error: ${response.status} ${response.statusText}`),
-          response.status
-        );
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          
+          // If model not found, try next one
+          if (response.status === 404) {
+            log(`Model ${modelName} not found, trying next model...`);
+            lastError = new Error(`Model ${modelName} not available`);
+            continue;
+          }
+          
+          logError('Gemini API error:', { status: response.status, statusText: response.statusText, error: errorData, model: modelName });
+          return sendErrorResponse(
+            new Error(`Gemini API error: ${response.status} ${response.statusText}`),
+            response.status
+          );
+        }
+
+        const data = await response.json();
+
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+          logError('Invalid Gemini response format:', data);
+          return sendErrorResponse(new Error('Invalid response format from Gemini API'), 500);
+        }
+
+        reply = data.candidates[0].content.parts[0].text;
+        log(`Successfully got response from model ${modelName}`);
+        break; // Success, exit loop
+      } catch (geminiError) {
+        logError(`Error calling Gemini API with model ${modelName}:`, geminiError);
+        lastError = geminiError;
+        // Continue to next model
+        continue;
       }
-
-      const data = await response.json();
-
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        logError('Invalid Gemini response format:', data);
-        return sendErrorResponse(new Error('Invalid response format from Gemini API'), 500);
-      }
-
-      reply = data.candidates[0].content.parts[0].text;
-    } catch (geminiError) {
-      logError('Error calling Gemini API:', geminiError);
-      return sendErrorResponse(new Error(`Failed to generate response: ${geminiError.message}`), 500);
+    }
+    
+    if (!reply) {
+      // All models failed
+      logError('All Gemini models failed:', lastError);
+      return sendErrorResponse(
+        new Error(`Failed to generate response: ${lastError?.message || 'All models failed'}`),
+        500
+      );
     }
 
     return sendSuccessResponse({
