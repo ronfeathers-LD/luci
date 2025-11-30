@@ -169,12 +169,13 @@ export async function POST(request) {
     try {
       // Try RPC function first (more efficient)
       // Pass embedding as array directly (Supabase will convert to vector type)
+      // Increased match_count and lowered threshold for better coverage
       const { data: similarEmbeddings, error: searchError } = await supabase
         .rpc('match_account_embeddings', {
           query_embedding: queryEmbedding, // Pass as array, not string
           match_account_id: actualAccountId,
-          match_threshold: 0.7, // Minimum similarity threshold
-          match_count: 5, // Return top 5 most similar chunks
+          match_threshold: 0.5, // Lowered from 0.7 to 0.5 for better coverage
+          match_count: 10, // Increased from 5 to 10 to get more diverse results
         });
 
       if (!searchError && similarEmbeddings && similarEmbeddings.length > 0) {
@@ -200,24 +201,52 @@ export async function POST(request) {
         throw new Error('RPC function not available');
       }
     } catch (rpcError) {
-      // Fallback: Get all embeddings for this account (less efficient but works)
-      log('Using fallback: fetching all embeddings');
-      const { data: allEmbeddings, error: fetchError } = await supabase
-        .from('account_embeddings')
-        .select('content, data_type, metadata, source_id')
-        .eq('account_id', actualAccountId)
-        .limit(10); // Limit to 10 for context size
+      // Fallback: Get diverse embeddings - try to get at least one from each data type
+      log('Using fallback: fetching diverse embeddings');
+      
+      // Get embeddings from each data type to ensure diversity
+      const dataTypes = ['case', 'transcription', 'sentiment', 'contact', 'account'];
+      const allEmbeddings = [];
+      
+      for (const dataType of dataTypes) {
+        const { data: typeEmbeddings, error: typeError } = await supabase
+          .from('account_embeddings')
+          .select('content, data_type, metadata, source_id')
+          .eq('account_id', actualAccountId)
+          .eq('data_type', dataType)
+          .limit(3); // Get up to 3 from each type
+        
+        if (!typeError && typeEmbeddings) {
+          allEmbeddings.push(...typeEmbeddings);
+        }
+      }
+      
+      // If we still don't have enough, get more from any type
+      if (allEmbeddings.length < 10) {
+        const { data: moreEmbeddings, error: fetchError } = await supabase
+          .from('account_embeddings')
+          .select('content, data_type, metadata, source_id')
+          .eq('account_id', actualAccountId)
+          .limit(10 - allEmbeddings.length);
+        
+        if (!fetchError && moreEmbeddings) {
+          // Add only if not already included
+          const existingIds = new Set(allEmbeddings.map(e => e.source_id));
+          moreEmbeddings.forEach(emb => {
+            if (!existingIds.has(emb.source_id)) {
+              allEmbeddings.push(emb);
+            }
+          });
+        }
+      }
 
-      if (fetchError) {
-        logError('Error fetching embeddings:', fetchError);
-        // Continue with empty context - let Gemini handle it
-      } else if (allEmbeddings && allEmbeddings.length > 0) {
+      if (allEmbeddings && allEmbeddings.length > 0) {
         contextChunks = allEmbeddings.map(emb => ({
           content: emb.content,
           type: emb.data_type,
           metadata: emb.metadata,
         }));
-        log(`Found ${contextChunks.length} embeddings via fallback`);
+        log(`Found ${contextChunks.length} diverse embeddings via fallback`);
       } else {
         log('No embeddings found for this account');
       }
