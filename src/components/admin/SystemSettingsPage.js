@@ -295,6 +295,14 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
               />
             )}
 
+            {activeTab === 'chatbot' && (
+              <ChatbotPromptsSection
+                settings={settings.chatbot || {}}
+                onUpdate={updateSetting}
+                saving={saving}
+              />
+            )}
+
             {activeTab === 'features' && (
               <FeatureFlagsSection
                 settings={settings.features || {}}
