@@ -219,26 +219,56 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
   return (
     <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-lean-white rounded-lg shadow-2xl flex flex-col z-50 border border-lean-gray-light">
       {/* Header */}
-      <div className="bg-lean-green text-lean-white p-4 rounded-t-lg flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <img 
-            src="/luci.png" 
-            alt="LUCI" 
-            className="w-10 h-10 rounded-full object-cover"
-          />
-          <div>
-            <h3 className="font-semibold">LUCI</h3>
-            <p className="text-sm text-lean-white/80">{accountName}</p>
+      <div className="bg-lean-green text-lean-white p-4 rounded-t-lg">
+        <div className="flex justify-between items-center mb-2">
+          <div className="flex items-center gap-3">
+            <img 
+              src="/luci.png" 
+              alt="LUCI" 
+              className="w-10 h-10 rounded-full object-cover"
+            />
+            <div>
+              <h3 className="font-semibold">LUCI</h3>
+              <p className="text-sm text-lean-white/80">{accountName}</p>
+            </div>
           </div>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-lean-white hover:text-lean-white/80 transition-colors"
+            aria-label="Close chat"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
+        {/* Generate Embeddings Button - Always visible in header */}
         <button
-          onClick={() => setIsOpen(false)}
-          className="text-lean-white hover:text-lean-white/80 transition-colors"
-          aria-label="Close chat"
+          onClick={generateEmbeddings}
+          disabled={generatingEmbeddings || hasEmbeddings === true}
+          className="w-full bg-lean-white/20 hover:bg-lean-white/30 text-lean-white text-xs px-3 py-1.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          title={hasEmbeddings === true ? "Embeddings already generated" : "Generate embeddings for this account"}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          {generatingEmbeddings ? (
+            <>
+              <LoaderIcon className="w-3 h-3" />
+              <span>Generating...</span>
+            </>
+          ) : hasEmbeddings === true ? (
+            <>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Embeddings Ready</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Generate Embeddings</span>
+            </>
+          )}
         </button>
       </div>
 
@@ -250,22 +280,8 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
               First-time setup required
             </p>
             <p className="text-sm text-lean-black mb-3">
-              To enable LUCI's chatbot, we need to process this account's data (contacts, cases, meetings, and sentiment analyses) into a searchable format. This is a one-time process that typically takes 30-60 seconds.
+              To enable LUCI's chatbot, we need to process this account's data (contacts, cases, meetings, and sentiment analyses) into a searchable format. This is a one-time process that typically takes 30-60 seconds. Use the button in the header above to generate embeddings.
             </p>
-            <button
-              onClick={generateEmbeddings}
-              disabled={generatingEmbeddings}
-              className="w-full bg-lean-green text-lean-white px-4 py-2 rounded-lg hover:bg-lean-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {generatingEmbeddings ? (
-                <span className="flex items-center justify-center">
-                  <LoaderIcon className="w-4 h-4 mr-2" />
-                  Generating embeddings...
-                </span>
-              ) : (
-                'Generate Embeddings'
-              )}
-            </button>
           </div>
         )}
 
