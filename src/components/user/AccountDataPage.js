@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import Header from '../shared/Header';
 import { LoaderIcon } from '../shared/Icons';
 import { deduplicatedFetch, logError } from '../../lib/client-utils';
+import AccountChatBot from './AccountChatBot';
 
 const AccountDataPage = ({ user, onSignOut, accountId }) => {
   const router = useRouter();
@@ -952,6 +953,16 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
           </div>
         </div>
       </main>
+      
+      {/* Account ChatBot */}
+      {account && user && (
+        <AccountChatBot
+          accountId={account.id}
+          userId={user.id}
+          accountName={account.name}
+          salesforceAccountId={account.salesforceId}
+        />
+      )}
     </div>
   );
 };
