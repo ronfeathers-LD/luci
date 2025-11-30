@@ -1489,12 +1489,30 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     },
   ];
 
+  // Debug info
+  const hasSettings = settings && Object.keys(settings).length > 0;
+  const hasPromptBase = settings?.PROMPT_BASE;
+  const hasPromptTemplate = settings?.PROMPT_TEMPLATE;
+  const promptBaseValue = settings?.PROMPT_BASE?.value;
+  const promptTemplateValue = settings?.PROMPT_TEMPLATE?.value;
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-lean-black mb-6">Chatbot Prompts</h2>
       <p className="text-lean-black-70 mb-6">
         Manage LUCI's system prompts. Changes take effect immediately for new chat sessions.
       </p>
+      
+      {/* Debug panel - remove after fixing */}
+      <div className="mb-4 p-4 bg-lean-gray-light rounded-lg text-xs font-mono">
+        <p className="font-semibold mb-2">Debug Info:</p>
+        <p>Has settings: {hasSettings ? 'Yes' : 'No'}</p>
+        <p>Has PROMPT_BASE: {hasPromptBase ? 'Yes' : 'No'}</p>
+        <p>Has PROMPT_TEMPLATE: {hasPromptTemplate ? 'Yes' : 'No'}</p>
+        <p>PROMPT_BASE.value type: {promptBaseValue ? typeof promptBaseValue : 'null'}</p>
+        <p>PROMPT_BASE.value keys: {promptBaseValue && typeof promptBaseValue === 'object' ? Object.keys(promptBaseValue).join(', ') : 'N/A'}</p>
+        <p>Settings keys: {hasSettings ? Object.keys(settings).join(', ') : 'None'}</p>
+      </div>
       
       {(!settings || Object.keys(settings).length === 0 || (!settings.PROMPT_BASE && !settings.PROMPT_TEMPLATE)) && (
         <div className="mb-4 p-4 bg-lean-yellow/20 border border-lean-yellow rounded-lg">
@@ -1530,42 +1548,56 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
 
           {expandedSection === section.id && (
             <div className="mt-6 space-y-6">
-              {section.fields.map((field) => (
-                <div key={field.key}>
-                  <label className="block text-sm font-semibold text-lean-black mb-2">
-                    {field.label}
-                  </label>
-                  {field.description && (
-                    <p className="text-xs text-lean-black-60 mb-2">{field.description}</p>
-                  )}
-                  {field.type === 'textarea' ? (
-                    <textarea
-                      value={getValue(field.key, field.defaultValue)}
-                      onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
-                      onBlur={() => {
-                        const currentValue = getValue(field.key, field.defaultValue);
-                        handleSave(field.parentKey, field.key, currentValue);
-                      }}
-                      className="w-full h-48 px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green text-sm font-mono"
-                      disabled={saving}
-                      placeholder={field.defaultValue}
-                    />
-                  ) : (
-                    <input
-                      type={field.type || 'text'}
-                      value={getValue(field.key, field.defaultValue)}
-                      onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
-                      onBlur={() => {
-                        const currentValue = getValue(field.key, field.defaultValue);
-                        handleSave(field.parentKey, field.key, currentValue);
-                      }}
-                      className="w-full px-3 py-2 border border-lean-gray-light rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green"
-                      disabled={saving}
-                      placeholder={field.defaultValue}
-                    />
-                  )}
-                </div>
-              ))}
+              {section.fields.map((field) => {
+                const fieldValue = getValue(field.key, field.defaultValue);
+                const isEmpty = !fieldValue || fieldValue.trim() === '';
+                
+                return (
+                  <div key={field.key}>
+                    <label className="block text-sm font-semibold text-lean-black mb-2">
+                      {field.label}
+                      {isEmpty && <span className="ml-2 text-xs text-lean-yellow-600">(Using default - value not found in database)</span>}
+                    </label>
+                    {field.description && (
+                      <p className="text-xs text-lean-black-60 mb-2">{field.description}</p>
+                    )}
+                    {field.type === 'textarea' ? (
+                      <textarea
+                        value={fieldValue}
+                        onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
+                        onBlur={() => {
+                          const currentValue = getValue(field.key, field.defaultValue);
+                          handleSave(field.parentKey, field.key, currentValue);
+                        }}
+                        className={`w-full h-48 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green text-sm font-mono ${
+                          isEmpty ? 'border-lean-yellow bg-lean-yellow/10' : 'border-lean-gray-light'
+                        }`}
+                        disabled={saving}
+                        placeholder={field.defaultValue}
+                      />
+                    ) : (
+                      <input
+                        type={field.type || 'text'}
+                        value={fieldValue}
+                        onChange={(e) => handleChange(field.key, e.target.value, field.parentKey)}
+                        onBlur={() => {
+                          const currentValue = getValue(field.key, field.defaultValue);
+                          handleSave(field.parentKey, field.key, currentValue);
+                        }}
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-lean-green ${
+                          isEmpty ? 'border-lean-yellow bg-lean-yellow/10' : 'border-lean-gray-light'
+                        }`}
+                        disabled={saving}
+                        placeholder={field.defaultValue}
+                      />
+                    )}
+                    {/* Debug info for this field */}
+                    <p className="text-xs text-lean-black-40 mt-1">
+                      Field key: {field.key} | Parent: {field.parentKey} | Value length: {fieldValue?.length || 0}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
