@@ -1,5 +1,10 @@
 // Role Management Page Component for Admin
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { logError } from '../../lib/client-utils';
 
 const RoleManagementPage = ({ user, onSignOut }) => {
   const [users, setUsers] = useState([]);
@@ -55,7 +60,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       const data = await responseClone.json();
       setUsers(data.users || []);
     } catch (err) {
-      window.logError('Error fetching users:', err);
+      logError('Error fetching users:', err);
       setError(err.message || 'Failed to load users. Please refresh the page.');
     } finally {
       setLoading(false);
@@ -80,7 +85,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       const data = await response.json();
       setRoles(data.roles || []);
     } catch (err) {
-      window.logError('Error fetching roles:', err);
+      logError('Error fetching roles:', err);
       // Use default roles if API fails
       setRoles([
         { id: 'admin', name: 'admin', description: 'Administrator with full system access' },
@@ -121,7 +126,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
       // Refresh users list
       await fetchUsers();
     } catch (err) {
-      window.logError('Error updating roles:', err);
+      logError('Error updating roles:', err);
       setError(err.message || 'Failed to update roles. Please try again.');
     } finally {
       setUpdatingUserId(null);
@@ -160,7 +165,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -204,7 +209,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green" />
+              <LoaderIcon className="w-8 h-8 animate-spin text-lean-green" />
               <span className="ml-3 text-lean-black-70">Loading users...</span>
             </div>
           ) : filteredUsers.length === 0 ? (
@@ -241,7 +246,7 @@ const RoleManagementPage = ({ user, onSignOut }) => {
                         </div>
                       </div>
                       {isUpdating && (
-                        <window.LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
+                        <LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
                       )}
                     </div>
 
@@ -317,6 +322,5 @@ const RoleManagementPage = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.RoleManagementPage = RoleManagementPage;
+export default RoleManagementPage;
 

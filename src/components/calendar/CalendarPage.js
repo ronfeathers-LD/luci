@@ -1,8 +1,15 @@
 // Calendar Page Component
 // Displays upcoming meetings with external contacts and research summary
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { deduplicatedFetch, logError } from '../../lib/client-utils';
 
 const CalendarPage = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [checkingCalendar, setCheckingCalendar] = useState(true);
   const [calendarConfigured, setCalendarConfigured] = useState(true);
@@ -19,7 +26,7 @@ const CalendarPage = ({ user, onSignOut }) => {
     }
 
     try {
-      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar?action=status&userId=${user.id}`);
+      const response = await deduplicatedFetch(`/api/google-calendar?action=status&userId=${user.id}`);
       const responseClone = response.clone();
       if (response.ok) {
         const data = await responseClone.json();
@@ -30,7 +37,7 @@ const CalendarPage = ({ user, onSignOut }) => {
         setCalendarConfigured(true);
       }
     } catch (err) {
-      window.logError('Error checking calendar connection:', err);
+      logError('Error checking calendar connection:', err);
       setCalendarConnected(false);
       setCalendarConfigured(true);
     } finally {
@@ -45,7 +52,10 @@ const CalendarPage = ({ user, onSignOut }) => {
       return;
     }
 
-    window.location.href = `/api/google-calendar?userId=${user.id}`;
+    // Redirect to Google Calendar OAuth endpoint
+    if (typeof window !== 'undefined') {
+      window.location.href = `/api/google-calendar?userId=${user.id}`;
+    }
   }, [user]);
 
   // Handle Google Calendar disconnection
@@ -74,7 +84,7 @@ const CalendarPage = ({ user, onSignOut }) => {
       setUpcomingMeetings([]);
       setResearchSummary(null);
     } catch (err) {
-      window.logError('Error disconnecting calendar:', err);
+      logError('Error disconnecting calendar:', err);
       setError(err.message || 'Failed to disconnect Google Calendar. Please try again.');
     }
   }, [user]);
@@ -89,7 +99,7 @@ const CalendarPage = ({ user, onSignOut }) => {
       setLoadingMeetings(true);
       setError(null);
       const url = `/api/google-calendar?userId=${user.id}&action=events&days=7${forceRefresh ? '&forceRefresh=true' : ''}`;
-      const response = await (window.deduplicatedFetch || fetch)(url);
+      const response = await deduplicatedFetch(url);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -178,7 +188,7 @@ const CalendarPage = ({ user, onSignOut }) => {
         accounts: researchAccounts,
       });
     } catch (err) {
-      window.logError('Error fetching meetings:', err);
+      logError('Error fetching meetings:', err);
       setError(err.message || 'Failed to fetch meetings. Please try again.');
     } finally {
       setLoadingMeetings(false);
@@ -203,7 +213,7 @@ const CalendarPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -230,7 +240,7 @@ const CalendarPage = ({ user, onSignOut }) => {
                 </p>
               </div>
               {checkingCalendar ? (
-                <window.LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
+                <LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
               ) : !calendarConfigured ? (
                 <span className="text-sm text-yellow-600 font-medium">Not Configured</span>
               ) : calendarConnected ? (
@@ -330,7 +340,7 @@ const CalendarPage = ({ user, onSignOut }) => {
                   title="Force refresh from Google Calendar (bypasses cache)"
                 >
                   {loadingMeetings ? (
-                    <window.LoaderIcon className="w-4 h-4 animate-spin inline" />
+                    <LoaderIcon className="w-4 h-4 animate-spin inline" />
                   ) : (
                     'Refresh'
                   )}
@@ -339,7 +349,7 @@ const CalendarPage = ({ user, onSignOut }) => {
 
               {loadingMeetings ? (
                 <div className="flex items-center justify-center py-8">
-                  <window.LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
+                  <LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
                   <span className="ml-3 text-lean-black-70">Loading meetings...</span>
                 </div>
               ) : upcomingMeetings.length === 0 ? (
@@ -476,11 +486,7 @@ const CalendarPage = ({ user, onSignOut }) => {
                                                     <button
                                                       key={account.id}
                                                       onClick={() => {
-                                                        if (window.navigate) {
-                                                          window.navigate(`/account/${accountId}/data`);
-                                                        } else {
-                                                          window.location.href = `/account/${accountId}/data`;
-                                                        }
+                                                        router.push(`/account/${accountId}/data`);
                                                       }}
                                                       className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-lean-green-10 text-lean-green border border-lean-green/20 hover:bg-lean-green hover:text-lean-white transition-colors cursor-pointer"
                                                     >
@@ -524,6 +530,5 @@ const CalendarPage = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.CalendarPage = CalendarPage;
+export default CalendarPage;
 

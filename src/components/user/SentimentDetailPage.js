@@ -1,8 +1,15 @@
 // Sentiment Analysis Detail Page Component
 // Displays a single sentiment analysis by ID
-const { useState, useEffect } = React;
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { deduplicatedFetch, logError } from '../../lib/client-utils';
 
 const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
+  const router = useRouter();
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -19,7 +26,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
         setLoading(true);
         setError(null);
 
-        const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?id=${analysisId}`);
+        const response = await deduplicatedFetch(`/api/sentiment-analysis?id=${analysisId}`);
         const responseClone = response.clone();
         
         if (!response.ok) {
@@ -30,7 +37,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
         const data = await responseClone.json();
         setAnalysis(data.analysis);
       } catch (err) {
-        window.logError('Error fetching sentiment analysis:', err);
+        logError('Error fetching sentiment analysis:', err);
         setError(err.message || 'Failed to load analysis');
       } finally {
         setLoading(false);
@@ -61,7 +68,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
     return (
       <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
         <div className="text-center">
-          <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+          <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
           <p className="text-lean-black-70">Loading analysis...</p>
         </div>
       </div>
@@ -71,7 +78,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
   if (error || !analysis) {
     return (
       <div className="min-h-screen bg-lean-almost-white flex flex-col">
-        <window.Header user={user} onSignOut={onSignOut} />
+        <Header user={user} onSignOut={onSignOut} />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
           <div className="max-w-6xl mx-auto">
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -81,11 +88,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
             </div>
             <button
               onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/');
-                } else {
-                  window.location.href = '/';
-                }
+                router.push('/');
               }}
               className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
             >
@@ -103,7 +106,7 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -114,18 +117,10 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
               onClick={() => {
                 // Try to go back to account data page if we have account info
                 if (accountId) {
-                  if (window.navigate) {
-                    window.navigate(`/account/${accountId}/data`);
-                  } else {
-                    window.location.href = `/account/${accountId}/data`;
-                  }
+                    router.push(`/account/${accountId}/data`);
                 } else {
                   // Fallback to dashboard
-                  if (window.navigate) {
-                    window.navigate('/');
-                  } else {
-                    window.location.href = '/';
-                  }
+                  router.push('/');
                 }
               }}
               className="text-lean-green hover:text-lean-green/80 mb-4 flex items-center gap-2"
@@ -225,7 +220,6 @@ const SentimentDetailPage = ({ user, onSignOut, analysisId }) => {
   );
 };
 
-// Export to window
-window.SentimentDetailPage = SentimentDetailPage;
+export default SentimentDetailPage;
 
 

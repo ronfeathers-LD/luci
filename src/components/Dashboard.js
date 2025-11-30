@@ -1,18 +1,43 @@
 // Dashboard Component
 // Shows overview of accounts, recent analyses, and upcoming meetings
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from './shared/Header';
+import { deduplicatedFetch, logError } from '../lib/client-utils';
+
+// Loader Icon Component
+const LoaderIcon = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+  </svg>
+);
 
 const Dashboard = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [accounts, setAccounts] = useState([]);
   const [recentAnalyses, setRecentAnalyses] = useState([]);
   const [upcomingMeetings, setUpcomingMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [calendarConnected, setCalendarConnected] = useState(false);
+  
+  // Refs to prevent duplicate API calls during React Strict Mode double-renders
+  const accountsFetchingRef = useRef(false);
+  const accountsFetchedRef = useRef(false);
 
   // Fetch user's accounts
   const fetchAccounts = useCallback(async () => {
     if (!user?.id && !user?.email) return;
+    
+    // Prevent duplicate calls
+    if (accountsFetchingRef.current) {
+      return;
+    }
+    
+    accountsFetchingRef.current = true;
 
     try {
       const params = new URLSearchParams({
@@ -22,15 +47,21 @@ const Dashboard = ({ user, onSignOut }) => {
         cacheOnly: 'true',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
       const responseClone = response.clone();
       
       if (response.ok) {
         const data = await responseClone.json();
         setAccounts(data.accounts || []);
+        accountsFetchedRef.current = true;
       }
     } catch (err) {
-      window.logError('Error fetching accounts:', err);
+      logError('Error fetching accounts:', err);
+    } finally {
+      // Reset fetching flag after a short delay to allow for legitimate re-fetches
+      setTimeout(() => {
+        accountsFetchingRef.current = false;
+      }, 1000);
     }
   }, [user]);
 
@@ -49,7 +80,7 @@ const Dashboard = ({ user, onSignOut }) => {
           days: '30',
         });
 
-        const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+        const response = await deduplicatedFetch(`/api/sentiment-analysis?${params}`);
         const responseClone = response.clone();
         
         if (response.ok) {
@@ -69,7 +100,7 @@ const Dashboard = ({ user, onSignOut }) => {
       );
       setRecentAnalyses(flattened.slice(0, 10)); // Top 10 most recent
     } catch (err) {
-      window.logError('Error fetching recent analyses:', err);
+      logError('Error fetching recent analyses:', err);
     }
   }, [accounts]);
 
@@ -78,7 +109,7 @@ const Dashboard = ({ user, onSignOut }) => {
     if (!user?.id) return;
 
     try {
-      const response = await (window.deduplicatedFetch || fetch)(`/api/google-calendar?userId=${user.id}&action=status`);
+      const response = await deduplicatedFetch(`/api/google-calendar?userId=${user.id}&action=status`);
       const responseClone = response.clone();
       
       if (response.ok) {
@@ -87,7 +118,7 @@ const Dashboard = ({ user, onSignOut }) => {
         
         // If connected, fetch upcoming meetings
         if (data.connected) {
-          const meetingsResponse = await (window.deduplicatedFetch || fetch)(`/api/google-calendar?userId=${user.id}&action=events&days=7`);
+          const meetingsResponse = await deduplicatedFetch(`/api/google-calendar?userId=${user.id}&action=events&days=7`);
           const meetingsResponseClone = meetingsResponse.clone();
           
           if (meetingsResponse.ok) {
@@ -102,12 +133,17 @@ const Dashboard = ({ user, onSignOut }) => {
         }
       }
     } catch (err) {
-      window.logError('Error checking calendar status:', err);
+      logError('Error checking calendar status:', err);
     }
   }, [user]);
 
-  // Load all data
+  // Load all data - only fetch accounts once on mount or when user changes
   useEffect(() => {
+    // Skip if already fetched or currently fetching
+    if (accountsFetchedRef.current || accountsFetchingRef.current) {
+      return;
+    }
+    
     const loadData = async () => {
       setLoading(true);
       setError(null);
@@ -122,7 +158,12 @@ const Dashboard = ({ user, onSignOut }) => {
     };
 
     loadData();
-  }, [fetchAccounts]);
+    
+    // Reset fetched flag when user changes
+    return () => {
+      accountsFetchedRef.current = false;
+    };
+  }, [user?.id, user?.email, fetchAccounts]);
 
   // Fetch analyses and calendar when accounts are loaded
   useEffect(() => {
@@ -175,7 +216,7 @@ const Dashboard = ({ user, onSignOut }) => {
     return (
       <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
         <div className="text-center">
-          <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+          <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
           <p className="text-lean-black-70">Loading dashboard...</p>
         </div>
       </div>
@@ -184,7 +225,7 @@ const Dashboard = ({ user, onSignOut }) => {
 
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-7xl mx-auto">
@@ -216,13 +257,7 @@ const Dashboard = ({ user, onSignOut }) => {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/user');
-                  } else {
-                    window.location.href = '/user';
-                  }
-                }}
+                onClick={() => router.push('/user')}
                 className="mt-4 w-full px-4 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors text-left"
               >
                 <div className="flex items-center gap-3">
@@ -252,13 +287,7 @@ const Dashboard = ({ user, onSignOut }) => {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/analyze');
-                  } else {
-                    window.location.href = '/analyze';
-                  }
-                }}
+                onClick={() => router.push('/analyze')}
                 className="mt-4 w-full px-4 py-3 bg-lean-green text-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors text-left"
               >
                 <div className="flex items-center gap-3">
@@ -288,13 +317,7 @@ const Dashboard = ({ user, onSignOut }) => {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/calendar');
-                  } else {
-                    window.location.href = '/calendar';
-                  }
-                }}
+                onClick={() => router.push('/calendar')}
                 className="mt-4 w-full px-4 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors text-left"
               >
                 <div className="flex items-center gap-3">
@@ -317,13 +340,7 @@ const Dashboard = ({ user, onSignOut }) => {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-lean-black">Recent Sentiment Analyses</h2>
                 <button
-                  onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/analyze');
-                    } else {
-                      window.location.href = '/analyze';
-                    }
-                  }}
+                  onClick={() => router.push('/analyze')}
                   className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                 >
                   View All →
@@ -334,13 +351,7 @@ const Dashboard = ({ user, onSignOut }) => {
                 <div className="text-center py-8">
                   <p className="text-lean-black-70 mb-4">No analyses yet</p>
                   <button
-                    onClick={() => {
-                      if (window.navigate) {
-                        window.navigate('/analyze');
-                      } else {
-                        window.location.href = '/analyze';
-                      }
-                    }}
+                    onClick={() => router.push('/analyze')}
                     className="px-4 py-2 bg-lean-green text-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
                   >
                     Run Your First Analysis
@@ -352,13 +363,7 @@ const Dashboard = ({ user, onSignOut }) => {
                     <div
                       key={analysis.id}
                       className="border border-lean-black/20 rounded-lg p-4 hover:bg-lean-almost-white transition-colors cursor-pointer"
-                      onClick={() => {
-                        if (window.navigate) {
-                          window.navigate(`/sentiment/${analysis.id}`);
-                        } else {
-                          window.location.href = `/sentiment/${analysis.id}`;
-                        }
-                      }}
+                      onClick={() => router.push(`/sentiment/${analysis.id}`)}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -367,10 +372,8 @@ const Dashboard = ({ user, onSignOut }) => {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const accountId = analysis.accountId || analysis.account_id;
-                                if (accountId && window.navigate) {
-                                  window.navigate(`/account/${accountId}/data`);
-                                } else if (accountId) {
-                                  window.location.href = `/account/${accountId}/data`;
+                                if (accountId) {
+                                  router.push(`/account/${accountId}/data`);
                                 }
                               }}
                               className="font-semibold text-blue-600 hover:text-blue-800 hover:underline"
@@ -400,13 +403,7 @@ const Dashboard = ({ user, onSignOut }) => {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-lean-black">Upcoming Meetings</h2>
                 <button
-                  onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/calendar');
-                    } else {
-                      window.location.href = '/calendar';
-                    }
-                  }}
+                  onClick={() => router.push('/calendar')}
                   className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                 >
                   View All →
@@ -417,13 +414,7 @@ const Dashboard = ({ user, onSignOut }) => {
                 <div className="text-center py-8">
                   <p className="text-lean-black-70 mb-4">Connect your Google Calendar to see upcoming meetings</p>
                   <button
-                    onClick={() => {
-                      if (window.navigate) {
-                        window.navigate('/calendar');
-                      } else {
-                        window.location.href = '/calendar';
-                      }
-                    }}
+                    onClick={() => router.push('/calendar')}
                     className="px-4 py-2 bg-lean-green text-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
                   >
                     Connect Calendar
@@ -458,10 +449,8 @@ const Dashboard = ({ user, onSignOut }) => {
                                   key={accIdx}
                                   onClick={() => {
                                     const accountId = account.salesforce_id || account.id;
-                                    if (accountId && window.navigate) {
-                                      window.navigate(`/account/${accountId}/data`);
-                                    } else if (accountId) {
-                                      window.location.href = `/account/${accountId}/data`;
+                                    if (accountId) {
+                                      router.push(`/account/${accountId}/data`);
                                     }
                                   }}
                                   className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
@@ -485,6 +474,5 @@ const Dashboard = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.Dashboard = Dashboard;
+export default Dashboard;
 

@@ -1,7 +1,13 @@
 // Admin Page Component
-const { useState, useEffect } = React;
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
 
 const AdminPage = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -14,7 +20,7 @@ const AdminPage = ({ user, onSignOut }) => {
     return (
       <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
         <div className="text-center">
-          <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+          <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
           <p className="text-lean-black-70">Loading admin panel...</p>
         </div>
       </div>
@@ -24,7 +30,7 @@ const AdminPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut || (() => {})} />
+      <Header user={user} onSignOut={onSignOut || (() => {})} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -52,13 +58,7 @@ const AdminPage = ({ user, onSignOut }) => {
                 Configure system-wide settings and preferences.
               </p>
               <button 
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/admin/settings');
-                  } else {
-                    window.location.href = '/admin/settings';
-                  }
-                }}
+                onClick={() => router.push('/admin/settings')}
                 className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
               >
                 Manage Settings
@@ -72,13 +72,7 @@ const AdminPage = ({ user, onSignOut }) => {
                 View and manage user roles and permissions.
               </p>
               <button 
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/admin/roles');
-                  } else {
-                    window.location.href = '/admin/roles';
-                  }
-                }}
+                onClick={() => router.push('/admin/roles')}
                 className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
               >
                 Manage Roles
@@ -108,13 +102,7 @@ const AdminPage = ({ user, onSignOut }) => {
                 View all cached sentiment analysis results across all accounts.
               </p>
               <button 
-                onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/admin/analyses');
-                  } else {
-                    window.location.href = '/admin/analyses';
-                  }
-                }}
+                onClick={() => router.push('/admin/analyses')}
                 className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
               >
                 View All Analyses
@@ -128,6 +116,4 @@ const AdminPage = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.AdminPage = AdminPage;
-
+export default AdminPage;

@@ -1,21 +1,21 @@
 // Shared Icon Components
-const { useState, useCallback, useEffect, useRef } = React;
+'use client';
 
-const TrendingUpIcon = ({ className }) => (
+export const TrendingUpIcon = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
     <polyline points="16 7 22 7 22 13"></polyline>
   </svg>
 );
 
-const TrendingDownIcon = ({ className }) => (
+export const TrendingDownIcon = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="22 17 13.5 8.5 8.5 13.5 2 7"></polyline>
     <polyline points="16 17 22 17 22 11"></polyline>
   </svg>
 );
 
-const LoaderIcon = ({ className }) => (
+export const LoaderIcon = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="12" y1="2" x2="12" y2="6"></line>
     <line x1="12" y1="18" x2="12" y2="22"></line>
@@ -27,10 +27,3 @@ const LoaderIcon = ({ className }) => (
     <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
   </svg>
 );
-
-// Export to window for use in other components
-window.TrendingUpIcon = TrendingUpIcon;
-window.TrendingDownIcon = TrendingDownIcon;
-window.LoaderIcon = LoaderIcon;
-
-

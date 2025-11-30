@@ -1,7 +1,14 @@
 // User Account Management Page Component
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { deduplicatedFetch, logError, formatCurrency } from '../../lib/client-utils';
 
 const UserPage = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,7 +39,7 @@ const UserPage = ({ user, onSignOut }) => {
         role: user.role || '',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -43,7 +50,7 @@ const UserPage = ({ user, onSignOut }) => {
       const data = await responseClone.json();
       setAccounts(data.accounts || []);
     } catch (err) {
-      window.logError('Error fetching user accounts:', err);
+      logError('Error fetching user accounts:', err);
       setError(err.message || 'Failed to load accounts. Please refresh the page.');
     } finally {
       setLoading(false);
@@ -72,7 +79,7 @@ const UserPage = ({ user, onSignOut }) => {
         userId: user?.id || '',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -90,7 +97,7 @@ const UserPage = ({ user, onSignOut }) => {
       
       setSearchResults(filteredResults);
     } catch (err) {
-      window.logError('Error searching accounts:', err);
+      logError('Error searching accounts:', err);
       setError(err.message || 'Failed to search accounts. Please try again.');
       setSearchResults([]);
     } finally {
@@ -158,7 +165,7 @@ const UserPage = ({ user, onSignOut }) => {
         setShowAddAccount(false);
       }
     } catch (err) {
-      window.logError('Error adding account:', err);
+      logError('Error adding account:', err);
       setError(err.message || 'Failed to add account. Please try again.');
     } finally {
       setAddingAccountId(null);
@@ -205,7 +212,7 @@ const UserPage = ({ user, onSignOut }) => {
         return newSet;
       });
     } catch (err) {
-      window.logError('Error removing account:', err);
+      logError('Error removing account:', err);
       setError(err.message || 'Failed to remove account. Please try again.');
     } finally {
       setRemovingAccountId(null);
@@ -279,7 +286,7 @@ const UserPage = ({ user, onSignOut }) => {
       // Clear selection
       setSelectedAccounts(new Set());
     } catch (err) {
-      window.logError('Error bulk removing accounts:', err);
+      logError('Error bulk removing accounts:', err);
       setError(err.message || 'Failed to remove accounts. Please try again.');
     } finally {
       setBulkRemoving(false);
@@ -340,7 +347,7 @@ const UserPage = ({ user, onSignOut }) => {
       // Clear selection
       setSelectedAccounts(new Set());
     } catch (err) {
-      window.logError('Error refreshing from Salesforce:', err);
+      logError('Error refreshing from Salesforce:', err);
       setError(err.message || 'Failed to refresh accounts from Salesforce. Please try again.');
     } finally {
       setRefreshingFromSalesforce(false);
@@ -375,7 +382,7 @@ const UserPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -422,7 +429,7 @@ const UserPage = ({ user, onSignOut }) => {
                 />
                 {isSearching && (
                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    <window.LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
+                    <LoaderIcon className="w-5 h-5 animate-spin text-lean-green" />
                   </div>
                 )}
               </div>
@@ -458,7 +465,7 @@ const UserPage = ({ user, onSignOut }) => {
                           className="ml-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {addingAccountId === (account.salesforceId || account.id) ? (
-                            <window.LoaderIcon className="w-5 h-5 animate-spin" />
+                            <LoaderIcon className="w-5 h-5 animate-spin" />
                           ) : (
                             'Add'
                           )}
@@ -499,7 +506,7 @@ const UserPage = ({ user, onSignOut }) => {
                 >
                   {bulkRemoving ? (
                     <>
-                      <window.LoaderIcon className="w-4 h-4 animate-spin inline mr-2" />
+                      <LoaderIcon className="w-4 h-4 animate-spin inline mr-2" />
                       Removing...
                     </>
                   ) : (
@@ -515,7 +522,7 @@ const UserPage = ({ user, onSignOut }) => {
               >
                 {refreshingFromSalesforce ? (
                   <>
-                    <window.LoaderIcon className="w-4 h-4 animate-spin inline mr-2" />
+                    <LoaderIcon className="w-4 h-4 animate-spin inline mr-2" />
                     Refreshing...
                   </>
                 ) : (
@@ -534,7 +541,7 @@ const UserPage = ({ user, onSignOut }) => {
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green" />
+              <LoaderIcon className="w-8 h-8 animate-spin text-lean-green" />
               <span className="ml-3 text-lean-black-70">Loading accounts...</span>
             </div>
           ) : accounts.length === 0 ? (
@@ -582,11 +589,7 @@ const UserPage = ({ user, onSignOut }) => {
                         <button
                           onClick={() => {
                             const accountId = account.salesforceId || account.id;
-                            if (window.navigate) {
-                              window.navigate(`/account/${accountId}/data`);
-                            } else {
-                              window.location.href = `/account/${accountId}/data`;
-                            }
+                            router.push(`/account/${accountId}/data`);
                           }}
                           className="font-medium text-lean-black text-left hover:text-lean-green hover:underline"
                         >
@@ -618,7 +621,7 @@ const UserPage = ({ user, onSignOut }) => {
                           className="px-3 py-1 text-red-600 hover:text-red-800 hover:underline disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {removingAccountId === (account.salesforceId || account.id) ? (
-                            <window.LoaderIcon className="w-4 h-4 animate-spin inline" />
+                            <LoaderIcon className="w-4 h-4 animate-spin inline" />
                           ) : (
                             'Remove'
                           )}
@@ -638,6 +641,5 @@ const UserPage = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.UserPage = UserPage;
+export default UserPage;
 

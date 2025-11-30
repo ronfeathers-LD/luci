@@ -1,11 +1,25 @@
 // SentimentAnalyzer Component
-const { useState, useCallback, useEffect } = React;
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from './shared/Header';
+import { LoaderIcon, TrendingUpIcon, TrendingDownIcon } from './shared/Icons';
+import { 
+  deduplicatedFetch, 
+  logError, 
+  trackAnalytics, 
+  categorizeContactLevel, 
+  formatCurrency, 
+  getBuildVersion, 
+  isProduction 
+} from '../lib/client-utils';
 
 // Helper Functions
 // Fetch Avoma transcription data (with caching)
 const fetchAvomaData = async (customerIdentifier, salesforceAccountId = null) => {
       try {
-        const response = await (window.deduplicatedFetch || fetch)('/api/avoma-transcription', {
+        const response = await deduplicatedFetch('/api/avoma-transcription', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -31,7 +45,7 @@ const fetchAvomaData = async (customerIdentifier, salesforceAccountId = null) =>
           warning: data.warning || null,
         };
       } catch (error) {
-        window.logError('Error fetching Avoma transcription:', error);
+        logError('Error fetching Avoma transcription:', error);
         // Return empty data instead of throwing - allow analysis to continue
         return {
           transcription: '',
@@ -90,7 +104,7 @@ const fetchSalesforceData = async (customerIdentifier, accountData = null, exist
 
 // Analyze sentiment using secure Vercel Serverless Function
 const analyzeSentiment = async (transcription, salesforceContext, userId, accountId, salesforceAccountId, customerIdentifier, forceRefresh = false) => {
-  const response = await (window.deduplicatedFetch || fetch)('/api/analyze-sentiment', {
+  const response = await deduplicatedFetch('/api/analyze-sentiment', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -126,6 +140,7 @@ const analyzeSentiment = async (transcription, salesforceContext, userId, accoun
 
 // Main SentimentAnalyzer Component
 const SentimentAnalyzer = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [accounts, setAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -368,7 +383,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         accountId: accountData.id, // This might be a UUID, which is fine for the lookup
       });
       
-      const casesResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-cases?${params}`);
+      const casesResponse = await deduplicatedFetch(`/api/salesforce-cases?${params}`);
       const casesResponseClone = casesResponse.clone();
       
       if (casesResponse.ok) {
@@ -380,11 +395,11 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         setCases(fetchedCases);
       } else {
         const errorData = await casesResponseClone.json().catch(() => ({}));
-        window.logError('Error fetching cases:', new Error(errorData.message || errorData.error || `HTTP ${casesResponse.status}`));
+        logError('Error fetching cases:', new Error(errorData.message || errorData.error || `HTTP ${casesResponse.status}`));
         setCases([]);
       }
     } catch (err) {
-      window.logError('Error fetching cases:', err);
+      logError('Error fetching cases:', err);
       setCases([]);
     } finally {
       setCasesLoading(false);
@@ -423,7 +438,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         accountId: accountData.id, // This might be a UUID, which is fine for the lookup
       });
       
-      const contactsResponse = await (window.deduplicatedFetch || fetch)(`/api/salesforce-contacts?${params}`);
+      const contactsResponse = await deduplicatedFetch(`/api/salesforce-contacts?${params}`);
       const contactsResponseClone = contactsResponse.clone();
       if (contactsResponse.ok) {
         const contactsData = await contactsResponseClone.json();
@@ -438,15 +453,15 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         }
         
         setContacts(fetchedContacts);
-        if (!window.isProduction) {
+        if (!isProduction()) {
         }
       } else {
         const errorData = await contactsResponse.json().catch(() => ({}));
-        window.logError('Error fetching contacts:', new Error(errorData.message || errorData.error || `HTTP ${contactsResponse.status}`));
+        logError('Error fetching contacts:', new Error(errorData.message || errorData.error || `HTTP ${contactsResponse.status}`));
         setContacts([]);
       }
     } catch (err) {
-      window.logError('Error fetching contacts:', err);
+      logError('Error fetching contacts:', err);
       setContacts([]);
     } finally {
       setContactsLoading(false);
@@ -473,7 +488,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           cacheOnly: 'true', // Only return cached accounts, never query Salesforce
         });
 
-        const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+        const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
         const responseClone = response.clone();
         
         if (!response.ok) {
@@ -497,12 +512,12 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           setCustomerIdentifier(cachedAccounts[0].name);
         }
         
-        window.analytics.track('cached_accounts_loaded', { 
+        trackAnalytics('cached_accounts_loaded', { 
           count: cachedAccounts.length,
           userId: user.id 
         });
       } catch (err) {
-        window.logError('Error fetching cached accounts:', err);
+        logError('Error fetching cached accounts:', err);
         // Don't show error for missing accounts - just set empty array
         setAccounts([]);
       } finally {
@@ -556,14 +571,14 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         days: '365',
       });
       
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const response = await deduplicatedFetch(`/api/sentiment-analysis?${params}`);
       const responseClone = response.clone();
       if (response.ok) {
         const data = await responseClone.json();
         setSentimentHistory(data);
       } else {
         const errorData = await responseClone.json().catch(() => ({}));
-        window.logError('Failed to fetch sentiment history:', { 
+        logError('Failed to fetch sentiment history:', { 
           status: response.status, 
           error: errorData 
         });
@@ -571,7 +586,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         setSentimentHistory(null);
       }
     } catch (err) {
-      window.logError('Error fetching sentiment history:', err);
+      logError('Error fetching sentiment history:', err);
       // Don't show error to user - historical data is optional
       setSentimentHistory(null);
     } finally {
@@ -605,7 +620,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         days: '365',
       });
       
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const response = await deduplicatedFetch(`/api/sentiment-analysis?${params}`);
       const responseClone = response.clone();
       if (response.ok) {
         const data = await responseClone.json();
@@ -618,7 +633,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         setCachedSentiment(null);
       }
     } catch (err) {
-      window.logError('Error checking cached sentiment:', err);
+      logError('Error checking cached sentiment:', err);
       setCachedSentiment(null);
     } finally {
       setCheckingCache(false);
@@ -657,7 +672,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         userId: user?.id || '',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -678,13 +693,13 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         setCustomerIdentifier('');
       }
       
-      window.analytics.track('accounts_searched', { 
+      trackAnalytics('accounts_searched', { 
         searchTerm: searchQuery,
         count: data.accounts?.length || 0,
         userId: user?.id 
       });
     } catch (err) {
-      window.logError('Error searching accounts:', err);
+      logError('Error searching accounts:', err);
       setError(err.message || 'Failed to search accounts. Please try again.');
     } finally {
       setIsSearching(false);
@@ -699,7 +714,11 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
     setCustomerIdentifier('');
     setError(null);
     // Trigger useEffect to reload assigned accounts
-    window.location.reload();
+    if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    }
   };
 
   const handleAnalyze = useCallback(async (attempt = 0, forceRefresh = false) => {
@@ -735,7 +754,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       const contactTitle = (c) => c.title || c.linkedinProfile?.current_title || '';
       const categorizedContacts = contacts.map(c => {
         const title = contactTitle(c);
-        const level = window.categorizeContactLevel(title);
+        const level = categorizeContactLevel(title);
         return {
           ...c,
           contactLevel: level,
@@ -904,7 +923,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         }
       }, 1000); // Small delay to allow database save to complete
       
-      window.analytics.track('sentiment_analyzed', { 
+      trackAnalytics('sentiment_analyzed', { 
         customerIdentifier,
         score: result.score,
         hasTranscription: !!transcription,
@@ -914,14 +933,14 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
     } catch (err) {
       const errorMessage = err.message || 'An error occurred while analyzing sentiment';
       setError(errorMessage);
-      window.logError('Sentiment analysis error:', err);
+        logError('Sentiment analysis error:', err);
       
       if (attempt < maxRetries && (err.message?.includes('timeout') || err.message?.includes('network'))) {
         setRetryCount(attempt + 1);
-        window.analytics.track('sentiment_analysis_retry', { attempt: attempt + 1 });
+        trackAnalytics('sentiment_analysis_retry', { attempt: attempt + 1 });
       } else {
         setRetryCount(0);
-        window.analytics.track('sentiment_analysis_failed', { error: errorMessage });
+        trackAnalytics('sentiment_analysis_failed', { error: errorMessage });
       }
     } finally {
       setLoading(false);
@@ -962,7 +981,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
       const title = c.title || c.linkedinProfile?.current_title || '';
       return {
         ...c,
-        contactLevel: window.categorizeContactLevel(title),
+        contactLevel: categorizeContactLevel(title),
         title: title,
       };
     });
@@ -1011,10 +1030,10 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             <div className="flex items-center gap-4">
               {/* LD Logo */}
               <img 
-                src={`/ld-logo-abbr-green.png?v=${window.getBuildVersion()}`}
+                src={`/ld-logo-abbr-green.png?v=${getBuildVersion()}`}
                 alt="LeanData Logo" 
                 className="h-12 w-auto flex-shrink-0"
-                key={`logo-${window.getBuildVersion()}`}
+                key={`logo-${getBuildVersion()}`}
               />
               <div className="text-left">
                 <h1 className="typography-heading text-[#f7f7f7] mb-1">
@@ -1028,11 +1047,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/user');
-                  } else {
-                    window.location.href = '/user';
-                  }
+                  router.push('/user');
                 }}
                 className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-lean-green rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
                 aria-label="Manage my accounts"
@@ -1041,11 +1056,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
               </button>
               <button
                 onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/admin');
-                  } else {
-                    window.location.href = '/admin';
-                  }
+                  router.push('/admin');
                 }}
                 className="px-4 py-2 text-sm font-medium text-[#f7f7f7] bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                 aria-label="Go to admin panel"
@@ -1098,11 +1109,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   <button
                     onClick={() => {
                       const accountId = selectedAccount.salesforceId || selectedAccount.id;
-                      if (window.navigate) {
-                        window.navigate(`/account/${accountId}/data`);
-                      } else {
-                        window.location.href = `/account/${accountId}/data`;
-                      }
+                      router.push(`/account/${accountId}/data`);
                     }}
                     className="typography-body text-lean-black-70 hover:text-lean-green hover:underline transition-colors text-left"
                   >
@@ -1150,9 +1157,9 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             <div className={`rounded-lg p-6 ${getScoreBgColor(sentiment.score)}`}>
               <div className="flex items-start gap-3">
                 {sentiment.score >= 8 ? (
-                  <window.TrendingUpIcon className="w-6 h-6 text-lean-green flex-shrink-0 mt-1" />
+                  <TrendingUpIcon className="w-6 h-6 text-lean-green flex-shrink-0 mt-1" />
                 ) : (
-                  <window.TrendingDownIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                  <TrendingDownIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
                 )}
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
@@ -1244,10 +1251,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                         <button
                           key={entry.id || idx}
                           onClick={() => {
-                            if (entry.id && window.navigate) {
-                              window.navigate(`/sentiment/${entry.id}`);
-                            } else if (entry.id) {
-                              window.location.href = `/sentiment/${entry.id}`;
+                            if (entry.id) {
+                              router.push(`/sentiment/${entry.id}`);
                             }
                           }}
                           className="flex-1 flex flex-col items-center cursor-pointer"
@@ -1280,10 +1285,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                     <button
                       key={entry.id}
                       onClick={() => {
-                        if (entry.id && window.navigate) {
-                          window.navigate(`/sentiment/${entry.id}`);
-                        } else if (entry.id) {
-                          window.location.href = `/sentiment/${entry.id}`;
+                        if (entry.id) {
+                          router.push(`/sentiment/${entry.id}`);
                         }
                       }}
                       className="w-full flex items-center justify-between p-3 bg-lean-almost-white rounded-lg border border-lean-black/20 hover:bg-lean-green-10 hover:border-lean-green/30 transition-colors text-left"
@@ -1315,7 +1318,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
           {historyLoading && (
             <div className="bg-lean-white rounded-lg shadow-lg p-8 mb-6">
               <div className="flex items-center justify-center">
-                <window.LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mr-3" />
+                <LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mr-3" />
                 <p className="text-lean-black-70">Loading sentiment history...</p>
               </div>
             </div>
@@ -1372,10 +1375,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                       <button
                         onClick={() => {
                           const accountId = selectedAccount?.salesforceId || selectedAccount?.id;
-                          if (accountId && window.navigate) {
-                            window.navigate(`/account/${accountId}/data`);
-                          } else if (accountId) {
-                            window.location.href = `/account/${accountId}/data`;
+                          if (accountId) {
+                            router.push(`/account/${accountId}/data`);
                           }
                         }}
                         className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
@@ -1457,10 +1458,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                       <button
                         onClick={() => {
                           const accountId = selectedAccount?.salesforceId || selectedAccount?.id || analysisData.salesforceContext?.account_id;
-                          if (accountId && window.navigate) {
-                            window.navigate(`/account/${accountId}/data`);
-                          } else if (accountId) {
-                            window.location.href = `/account/${accountId}/data`;
+                          if (accountId) {
+                            router.push(`/account/${accountId}/data`);
                           }
                         }}
                         className="ml-2 text-blue-600 hover:text-blue-800 hover:underline transition-colors"
@@ -1474,7 +1473,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                     </div>
                     <div>
                       <span className="font-medium text-lean-black-70">Contract Value:</span>
-                      <span className="ml-2 text-lean-black">{window.formatCurrency(analysisData.salesforceContext.contract_value) || 'N/A'}</span>
+                      <span className="ml-2 text-lean-black">{formatCurrency(analysisData.salesforceContext.contract_value) || 'N/A'}</span>
                     </div>
                     <div>
                       <span className="font-medium text-lean-black-70">Industry:</span>
@@ -1846,7 +1845,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 <h3 className="text-lg font-semibold text-lean-black mb-4">Account Contacts ({contacts.length})</h3>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {contactsWithCaseInvolvement.map((contact) => {
-                    const contactLevel = contact.contactLevel || window.categorizeContactLevel(contact.title || contact.linkedinProfile?.current_title || '');
+                    const contactLevel = contact.contactLevel || categorizeContactLevel(contact.title || contact.linkedinProfile?.current_title || '');
                     const isInvolved = contact.involvedInCases;
                     const salesforceUrl = contact.id 
                       ? `https://leandata.my.salesforce.com/${contact.id}`
@@ -1964,7 +1963,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} showHelp={showHelp} setShowHelp={setShowHelp} />
+      <Header user={user} onSignOut={onSignOut} showHelp={showHelp} setShowHelp={setShowHelp} />
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-12">
         <div className="max-w-4xl mx-auto">
@@ -1975,7 +1974,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
         {loadingAccounts ? (
           <div className="bg-lean-white rounded-lg shadow-lg p-6 mb-6">
             <div className="flex items-center justify-center py-8">
-              <window.LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mr-3" />
+              <LoaderIcon className="w-6 h-6 animate-spin text-blue-600 mr-3" />
               <p className="text-lean-black-70">Loading your accounts...</p>
             </div>
           </div>
@@ -1989,11 +1988,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 </label>
                 <button
                   onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/user');
-                    } else {
-                      window.location.href = '/user';
-                    }
+                    router.push('/user');
                   }}
                   className="text-xs text-lean-green hover:text-lean-green/80 underline font-medium transition-colors"
                   aria-label="Manage accounts"
@@ -2027,11 +2022,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   </p>
                   <button
                     onClick={() => {
-                      if (window.navigate) {
-                        window.navigate('/user');
-                      } else {
-                        window.location.href = '/user';
-                      }
+                      router.push('/user');
                     }}
                     className="text-sm text-yellow-800 hover:text-yellow-900 underline font-semibold"
                   >
@@ -2085,7 +2076,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   aria-label="Search accounts"
                 >
                   {isSearching ? (
-                    <window.LoaderIcon className="w-5 h-5 animate-spin" />
+                    <LoaderIcon className="w-5 h-5 animate-spin" />
                   ) : (
                     'Search'
                   )}
@@ -2140,7 +2131,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                 {/* Cache Status Indicator */}
                 {checkingCache ? (
                   <div className="flex items-center gap-2 text-xs text-lean-black-70">
-                    <window.LoaderIcon className="w-4 h-4 animate-spin text-lean-green" />
+                    <LoaderIcon className="w-4 h-4 animate-spin text-lean-green" />
                     <span>Checking cache...</span>
                   </div>
                 ) : cachedSentiment ? (
@@ -2183,8 +2174,8 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                     <button
                       onClick={() => {
                         // View cached sentiment - load it directly
-                        if (cachedSentiment.id && window.navigate) {
-                          window.navigate(`/sentiment/${cachedSentiment.id}`);
+                        if (cachedSentiment.id) {
+                          router.push(`/sentiment/${cachedSentiment.id}`);
                         } else {
                           // Fallback: set sentiment from cache and show results
                           setSentiment({
@@ -2212,7 +2203,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                     >
                       {loading ? (
                         <>
-                          <window.LoaderIcon className="w-4 h-4 animate-spin" />
+                          <LoaderIcon className="w-4 h-4 animate-spin" />
                           <span>Analyzing...</span>
                         </>
                       ) : (
@@ -2235,7 +2226,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                   >
                     {loading ? (
                       <>
-                        <window.LoaderIcon className="w-5 h-5 animate-spin" />
+                        <LoaderIcon className="w-5 h-5 animate-spin" />
                         <span>Analyzing...</span>
                       </>
                     ) : (
@@ -2262,7 +2253,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
               </div>
               <div>
                 <span className="text-lean-black-70">Contract Value:</span>
-                <span className="ml-2 font-medium text-lean-black">{window.formatCurrency(selectedAccount.contractValue)}</span>
+                <span className="ml-2 font-medium text-lean-black">{formatCurrency(selectedAccount.contractValue)}</span>
               </div>
               <div>
                 <span className="text-lean-black-70">Industry:</span>
@@ -2620,9 +2611,9 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
             <div className={`rounded-lg p-6 ${getScoreBgColor(sentiment.score)}`}>
               <div className="flex items-start gap-3">
                 {sentiment.score >= 8 ? (
-                  <window.TrendingUpIcon className="w-6 h-6 text-lean-green flex-shrink-0 mt-1" />
+                  <TrendingUpIcon className="w-6 h-6 text-lean-green flex-shrink-0 mt-1" />
                 ) : (
-                  <window.TrendingDownIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+                  <TrendingDownIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
                 )}
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
@@ -2796,7 +2787,7 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
                         {analysisData.salesforceContext.contract_value && (
                           <div>
                             <span className="font-medium text-lean-black-70">Contract Value:</span>
-                            <span className="ml-2 text-lean-black">{window.formatCurrency(analysisData.salesforceContext.contract_value)}</span>
+                            <span className="ml-2 text-lean-black">{formatCurrency(analysisData.salesforceContext.contract_value)}</span>
                           </div>
                         )}
                         {analysisData.salesforceContext.industry && (
@@ -2931,5 +2922,4 @@ const SentimentAnalyzer = ({ user, onSignOut }) => {
     );
   };
 
-// Export to window
-window.SentimentAnalyzer = SentimentAnalyzer;
+export default SentimentAnalyzer;

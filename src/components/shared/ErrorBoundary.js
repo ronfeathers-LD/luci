@@ -1,5 +1,8 @@
 // Error Boundary Component
-const { Component } = React;
+'use client';
+
+import { Component } from 'react';
+import { logError } from '../../lib/client-utils';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -12,7 +15,7 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    window.logError('Error Boundary caught an error:', error, errorInfo);
+    logError('Error Boundary caught an error:', error, errorInfo);
   }
 
   render() {
@@ -32,7 +35,9 @@ class ErrorBoundary extends Component {
             <button
               onClick={() => {
                 this.setState({ hasError: false, error: null });
-                window.location.reload();
+                if (typeof window !== 'undefined') {
+                  window.location.reload();
+                }
               }}
               className="px-6 py-3 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 focus:outline-none focus:ring-2 focus:ring-lean-green transition-all"
             >
@@ -47,7 +52,4 @@ class ErrorBoundary extends Component {
   }
 }
 
-// Export to window
-window.ErrorBoundary = ErrorBoundary;
-
-
+export default ErrorBoundary;

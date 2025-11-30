@@ -1,0 +1,21 @@
+# Next.js Conversion - In Progress
+
+## Status
+Starting systematic conversion of LUCI to Next.js App Router.
+
+## Scale
+- 10 API routes (~5,083 lines)
+- 14 component files  
+- 8-10 pages to create
+- 353 window.* references
+
+This is a major refactor requiring 30-50+ file changes.
+
+## Approach
+1. Create foundational structure (layout, root page)
+2. Convert API routes systematically
+3. Create pages with file-based routing
+4. Refactor components
+5. Update navigation
+
+Proceeding now...

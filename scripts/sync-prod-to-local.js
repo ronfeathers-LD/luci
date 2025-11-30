@@ -8,6 +8,8 @@
 const { createClient } = require('@supabase/supabase-js');
 const { Client } = require('pg');
 const readline = require('readline');
+const fs = require('fs');
+const path = require('path');
 
 // Colors for console output
 const colors = {
@@ -39,10 +41,37 @@ function logHeader(message) {
   log(`[SYNC] ${message}`, 'blue');
 }
 
-// Production Supabase config (from .env.local.backup)
+// Load environment variables for production config
+// Try to load from .env.local.backup if it exists
+function loadEnvFile(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const envVars = {};
+      content.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#')) {
+          const [key, ...valueParts] = trimmed.split('=');
+          if (key && valueParts.length > 0) {
+            envVars[key.trim()] = valueParts.join('=').trim().replace(/^["']|["']$/g, '');
+          }
+        }
+      });
+      return envVars;
+    }
+  } catch (error) {
+    // Ignore errors - file might not exist
+  }
+  return {};
+}
+
+// Load from .env.local.backup or use environment variables
+const envBackup = loadEnvFile(path.join(process.cwd(), '.env.local.backup'));
+
+// Production Supabase config - reads from .env.local.backup or environment variables
 const PROD_CONFIG = {
-  url: 'https://vcztmplyannfgvlihyuq.supabase.co',
-  serviceRoleKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjenRtcGx5YW5uZmd2bGloeXVxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MzY0MDgzNSwiZXhwIjoyMDc5MjE2ODM1fQ.GALhPkYWFQMRKFazh829OsPvXLerqaYw9NtOy6uTlhI'
+  url: envBackup.PROD_SUPABASE_URL || envBackup.SUPABASE_URL || process.env.PROD_SUPABASE_URL || process.env.SUPABASE_URL || '',
+  serviceRoleKey: envBackup.PROD_SUPABASE_SERVICE_ROLE_KEY || envBackup.SUPABASE_SERVICE_ROLE_KEY || process.env.PROD_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 };
 
 // Local Supabase config
@@ -55,18 +84,39 @@ const LOCAL_CONFIG = {
 };
 
 // Tables to sync (in order - respecting foreign key dependencies)
+// Order matters: parent tables must come before child tables
 const TABLES_TO_SYNC = [
+  // Core user tables
   'users',
+  
+  // Configuration tables (independent)
   'salesforce_configs',
   'avoma_configs',
   'linkedin_configs',
+  
+  // Roles system (users must exist first)
+  'roles',
+  'user_roles',
+  
+  // Accounts (depends on users for owner_id potentially)
   'accounts',
   'user_accounts',
+  
+  // Account-related data (depends on accounts)
   'transcriptions',
   'cases',
   'contacts',
   'sentiment_history',
-  'linkedin_profiles'
+  'linkedin_profiles',
+  'calendar_event_account_matches',
+  
+  // User-specific data (depends on users)
+  'google_calendar_tokens',
+  'google_calendar_events',
+  'user_logins',
+  
+  // System settings (independent)
+  'system_settings'
 ];
 
 // Tables to skip (system tables, etc.)
@@ -95,6 +145,16 @@ async function connectToLocal() {
  * Get Supabase client for production
  */
 function getProdSupabase() {
+  if (!PROD_CONFIG.url || !PROD_CONFIG.serviceRoleKey) {
+    logError('Production Supabase credentials not found!');
+    logInfo('Please create .env.local.backup with:');
+    logInfo('  PROD_SUPABASE_URL=https://your-project.supabase.co');
+    logInfo('  PROD_SUPABASE_SERVICE_ROLE_KEY=your-service-role-key');
+    logInfo('');
+    logInfo('Or set them as environment variables before running this script.');
+    process.exit(1);
+  }
+  
   return createClient(PROD_CONFIG.url, PROD_CONFIG.serviceRoleKey, {
     auth: {
       autoRefreshToken: false,

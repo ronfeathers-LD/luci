@@ -1,8 +1,15 @@
 // Account Data Management Page Component
 // Displays Contacts, Cases, and Avoma calls for a specific account with ability to re-fetch
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { deduplicatedFetch, logError } from '../../lib/client-utils';
 
 const AccountDataPage = ({ user, onSignOut, accountId }) => {
+  const router = useRouter();
   const [account, setAccount] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [cases, setCases] = useState([]);
@@ -39,7 +46,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         role: user?.role || '',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-accounts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-accounts?${params}`);
       
       // Clone response immediately to avoid "body stream already read" error
       // (deduplicatedFetch can return the same response to multiple callers)
@@ -62,7 +69,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         setError('Account not found');
       }
     } catch (err) {
-      window.logError('Error fetching account:', err);
+      logError('Error fetching account:', err);
       setError(err.message || 'Failed to load account');
     }
   }, [accountId, user]);
@@ -81,7 +88,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         forceRefresh: forceRefresh ? 'true' : 'false',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-contacts?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-contacts?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -93,7 +100,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
       setContacts(data.contacts || []);
       setContactsLastSynced(data.lastSyncedAt || null);
     } catch (err) {
-      window.logError('Error fetching contacts:', err);
+      logError('Error fetching contacts:', err);
       setError(err.message || 'Failed to load contacts');
     } finally {
       setLoadingContacts(false);
@@ -114,7 +121,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         forceRefresh: forceRefresh ? 'true' : 'false',
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/salesforce-cases?${params}`);
+      const response = await deduplicatedFetch(`/api/salesforce-cases?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -126,7 +133,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
       setCases(data.cases || []);
       setCasesLastSynced(data.lastSyncedAt || null);
     } catch (err) {
-      window.logError('Error fetching cases:', err);
+      logError('Error fetching cases:', err);
       setError(err.message || 'Failed to load cases');
     } finally {
       setLoadingCases(false);
@@ -147,7 +154,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         limit: '100', // Get up to 100 analyses
       });
 
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const response = await deduplicatedFetch(`/api/sentiment-analysis?${params}`);
       const responseClone = response.clone();
       
       if (!response.ok) {
@@ -164,7 +171,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         setSentimentLastAnalyzed(history[0].analyzed_at);
       }
     } catch (err) {
-      window.logError('Error fetching sentiment analyses:', err);
+      logError('Error fetching sentiment analyses:', err);
       setError(err.message || 'Failed to load sentiment analyses');
     } finally {
       setLoadingSentiment(false);
@@ -191,7 +198,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
             customerIdentifier: account.name || '',
             forceRefresh: 'false',
           };
-          const avomaResponse = await (window.deduplicatedFetch || fetch)('/api/avoma-transcription', {
+          const avomaResponse = await deduplicatedFetch('/api/avoma-transcription', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(avomaParams),
@@ -201,7 +208,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
             transcription = avomaData.transcription || '';
           }
         } catch (err) {
-          window.logError('Could not fetch transcription for analysis:', err);
+          logError('Could not fetch transcription for analysis:', err);
           // Continue without transcription
         }
       }
@@ -232,7 +239,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
       };
 
       // Call analyze-sentiment API
-      const response = await (window.deduplicatedFetch || fetch)('/api/analyze-sentiment', {
+      const response = await deduplicatedFetch('/api/analyze-sentiment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -264,7 +271,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
 
       // Analysis completed successfully
     } catch (err) {
-      window.logError('Error running sentiment analysis:', err);
+      logError('Error running sentiment analysis:', err);
       setError(err.message || 'Failed to run sentiment analysis. Please try again.');
     } finally {
       setRunningAnalysis(false);
@@ -285,7 +292,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         accountId: account.id,
       });
 
-      const cachedResponse = await (window.deduplicatedFetch || fetch)(`/api/avoma-transcription?source=cache&${params}`);
+      const cachedResponse = await deduplicatedFetch(`/api/avoma-transcription?source=cache&${params}`);
       
       if (cachedResponse.ok) {
         const cachedData = await cachedResponse.json();
@@ -327,7 +334,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
             salesforceAccountId: account.salesforceId,
             accountId: account.id,
           });
-          const refreshResponse = await (window.deduplicatedFetch || fetch)(`/api/avoma-transcription?source=cache&${refreshParams}`);
+          const refreshResponse = await deduplicatedFetch(`/api/avoma-transcription?source=cache&${refreshParams}`);
           if (refreshResponse.ok) {
             const refreshData = await refreshResponse.json();
             setTranscriptions(refreshData.transcriptions || []);
@@ -350,7 +357,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
         }
       }
     } catch (err) {
-      window.logError('Error fetching transcriptions:', err);
+      logError('Error fetching transcriptions:', err);
       setError(err.message || 'Failed to load transcriptions');
       // Don't clear transcriptions if we have cached data
     } finally {
@@ -420,7 +427,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
     return (
       <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
         <div className="text-center">
-          <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+          <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
           <p className="text-lean-black-70">Loading account data...</p>
         </div>
       </div>
@@ -430,7 +437,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
   if (!account) {
     return (
       <div className="min-h-screen bg-lean-almost-white flex flex-col">
-        <window.Header user={user} onSignOut={onSignOut} />
+        <Header user={user} onSignOut={onSignOut} />
         <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
           <div className="max-w-6xl mx-auto">
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -440,11 +447,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
             </div>
             <button
               onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/user');
-                } else {
-                  window.location.href = '/user';
-                }
+                router.push('/user');
               }}
               className="mt-4 px-4 py-2 bg-lean-green text-lean-white font-semibold rounded-lg hover:bg-lean-green/90 transition-colors"
             >
@@ -459,7 +462,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -468,11 +471,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
           <div className="mb-6">
             <button
               onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/user');
-                } else {
-                  window.location.href = '/user';
-                }
+                router.push('/user');
               }}
               className="text-lean-green hover:text-lean-green/80 mb-4 flex items-center gap-2"
             >
@@ -521,7 +520,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
               >
                 {refreshingContacts || loadingContacts ? (
                   <>
-                    <window.LoaderIcon className="w-4 h-4 animate-spin" />
+                    <LoaderIcon className="w-4 h-4 animate-spin" />
                     Syncing...
                   </>
                 ) : (
@@ -560,7 +559,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
               >
                 {refreshingCases || loadingCases ? (
                   <>
-                    <window.LoaderIcon className="w-4 h-4 animate-spin" />
+                    <LoaderIcon className="w-4 h-4 animate-spin" />
                     Syncing...
                   </>
                 ) : (
@@ -599,7 +598,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
               >
                 {refreshingTranscriptions || loadingTranscriptions ? (
                   <>
-                    <window.LoaderIcon className="w-4 h-4 animate-spin" />
+                    <LoaderIcon className="w-4 h-4 animate-spin" />
                     Syncing...
                   </>
                 ) : (
@@ -637,7 +636,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
               >
                 {runningAnalysis ? (
                   <>
-                    <window.LoaderIcon className="w-4 h-4 animate-spin" />
+                    <LoaderIcon className="w-4 h-4 animate-spin" />
                     Analyzing...
                   </>
                 ) : (
@@ -705,7 +704,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
                 <div>
                   {loadingContacts && !refreshingContacts ? (
                     <div className="flex items-center justify-center py-8">
-                      <window.LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
+                      <LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
                       <span className="ml-3 text-lean-black-70">Loading contacts...</span>
                     </div>
                   ) : contacts.length === 0 ? (
@@ -750,7 +749,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
                 <div>
                   {loadingCases && !refreshingCases ? (
                     <div className="flex items-center justify-center py-8">
-                      <window.LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
+                      <LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
                       <span className="ml-3 text-lean-black-70">Loading cases...</span>
                     </div>
                   ) : cases.length === 0 ? (
@@ -801,7 +800,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
                 <div>
                   {loadingTranscriptions && !refreshingTranscriptions ? (
                     <div className="flex items-center justify-center py-8">
-                      <window.LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
+                      <LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
                       <span className="ml-3 text-lean-black-70">Loading Avoma calls...</span>
                     </div>
                   ) : transcriptions.length === 0 ? (
@@ -872,7 +871,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
                 <div>
                   {loadingSentiment ? (
                     <div className="flex items-center justify-center py-8">
-                      <window.LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
+                      <LoaderIcon className="w-6 h-6 animate-spin text-lean-green" />
                       <span className="ml-3 text-lean-black-70">Loading sentiment analyses...</span>
                     </div>
                   ) : sentimentAnalyses.length === 0 ? (
@@ -912,11 +911,7 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
                               <td className="py-3 px-4">
                                 <button
                                   onClick={() => {
-                                    if (window.navigate) {
-                                      window.navigate(`/sentiment/${analysis.id}`);
-                                    } else {
-                                      window.location.href = `/sentiment/${analysis.id}`;
-                                    }
+                                    router.push(`/sentiment/${analysis.id}`);
                                   }}
                                   className="text-left text-sm text-lean-black-70 hover:text-lean-green hover:underline line-clamp-2 transition-colors"
                                 >
@@ -961,5 +956,4 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
   );
 };
 
-// Export to window
-window.AccountDataPage = AccountDataPage;
+export default AccountDataPage;

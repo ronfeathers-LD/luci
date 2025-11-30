@@ -1,7 +1,14 @@
 // System Settings Page Component for Admin
-const { useState, useEffect, useCallback } = React;
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { logError } from '../../lib/client-utils';
 
 const SystemSettingsPage = ({ user, onSignOut }) => {
+  const router = useRouter();
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +30,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
       const data = await response.json();
       setSettings(data.settings || {});
     } catch (err) {
-      window.logError('Error fetching system settings:', err);
+      logError('Error fetching system settings:', err);
       setError(err.message || 'Failed to load system settings. Please refresh the page.');
     } finally {
       setLoading(false);
@@ -84,7 +91,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
 
       setIntegrationStatuses(transformedStatuses);
     } catch (err) {
-      window.logError('Error fetching integration statuses:', err);
+      logError('Error fetching integration statuses:', err);
       // Set all to disconnected on error
       setIntegrationStatuses({
         salesforce: { connected: false, error: 'Failed to check status' },
@@ -146,7 +153,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
         document.body.removeChild(successMsg);
       }, 2000);
     } catch (err) {
-      window.logError('Error updating setting:', err);
+      logError('Error updating setting:', err);
       setError(err.message || 'Failed to update setting. Please try again.');
     } finally {
       setSaving(false);
@@ -180,7 +187,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
     return (
       <div className="min-h-screen bg-lean-almost-white flex items-center justify-center">
         <div className="text-center">
-          <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+          <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
           <p className="text-lean-black-70">Loading system settings...</p>
         </div>
       </div>
@@ -190,7 +197,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       {/* Main Content */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
@@ -201,11 +208,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
               <h1 className="typography-heading text-lean-black">System Settings</h1>
               <button
                 onClick={() => {
-                  if (window.navigate) {
-                    window.navigate('/admin');
-                  } else {
-                    window.location.href = '/admin';
-                  }
+                  router.push('/admin');
                 }}
                 className="px-4 py-2 text-lean-black-70 hover:text-lean-black transition-colors"
               >
@@ -902,9 +905,10 @@ const SystemInfoSection = () => {
 
   useEffect(() => {
     // Set environment based on window location
-    const env = window.location.hostname.includes('localhost') 
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    const env = hostname.includes('localhost') 
       ? 'development' 
-      : window.location.hostname.includes('vercel.app') 
+      : hostname.includes('vercel.app') 
         ? 'staging' 
         : 'production';
     
@@ -933,7 +937,7 @@ const SystemInfoSection = () => {
         <div className="border border-lean-black/10 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-lean-black">Hostname</span>
-            <span className="text-sm text-lean-black-70">{window.location.hostname}</span>
+            <span className="text-sm text-lean-black-70">{typeof window !== 'undefined' ? window.location.hostname : 'N/A'}</span>
           </div>
         </div>
 
@@ -1005,7 +1009,7 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
       const data = await response.json();
       setConfigs(data.configs || {});
     } catch (err) {
-      window.logError('Error fetching integration configs:', err);
+      logError('Error fetching integration configs:', err);
       setErrors({ general: err.message || 'Failed to load integration configs' });
     } finally {
       setLoading(false);
@@ -1126,7 +1130,7 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
         document.body.removeChild(successMsg);
       }, 3000);
     } catch (err) {
-      window.logError(`Error saving ${integrationId} config:`, err);
+      logError(`Error saving ${integrationId} config:`, err);
       setErrors(prev => ({
         ...prev,
         [integrationId]: err.message || 'Failed to save configuration',
@@ -1178,7 +1182,7 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
         document.body.removeChild(successMsg);
       }, 3000);
     } catch (err) {
-      window.logError(`Error testing ${integrationId} connection:`, err);
+      logError(`Error testing ${integrationId} connection:`, err);
       setErrors(prev => ({
         ...prev,
         [`${integrationId}_test`]: err.message || 'Connection test failed',
@@ -1191,7 +1195,7 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+        <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
         <p className="text-lean-black-70">Loading integration configurations...</p>
       </div>
     );
@@ -1329,6 +1333,5 @@ const IntegrationConfigsSection = ({ user, onRefresh }) => {
   );
 };
 
-// Export to window
-window.SystemSettingsPage = SystemSettingsPage;
+export default SystemSettingsPage;
 

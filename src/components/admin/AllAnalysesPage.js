@@ -1,5 +1,10 @@
 // All Analyses Page Component - Shows all cached sentiment analyses
-const { useState, useEffect, useCallback, useMemo } = React;
+'use client';
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import Header from '../shared/Header';
+import { LoaderIcon } from '../shared/Icons';
+import { deduplicatedFetch, logError } from '../../lib/client-utils';
 
 const AllAnalysesPage = ({ user, onSignOut }) => {
   const [analyses, setAnalyses] = useState([]);
@@ -31,7 +36,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
         params.append('cached', 'true');
       }
       
-      const response = await (window.deduplicatedFetch || fetch)(`/api/sentiment-analysis?${params}`);
+      const response = await deduplicatedFetch(`/api/sentiment-analysis?${params}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch analyses');
@@ -75,7 +80,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
       const accountKeys = Object.keys(sortedGrouped);
       setExpandedAccounts(new Set(accountKeys));
     } catch (err) {
-      window.logError('Error fetching analyses:', err);
+      logError('Error fetching analyses:', err);
       setError(err.message || 'Failed to load analyses');
     } finally {
       setLoading(false);
@@ -133,7 +138,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
   return (
     <div className="min-h-screen bg-lean-almost-white flex flex-col">
       {/* Global Header */}
-      <window.Header user={user} onSignOut={onSignOut} />
+      <Header user={user} onSignOut={onSignOut} />
 
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
@@ -219,7 +224,7 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
           {/* Loading State */}
           {loading && (
             <div className="bg-lean-white rounded-lg shadow-md p-8 text-center">
-              <window.LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
+              <LoaderIcon className="w-8 h-8 animate-spin text-lean-green mx-auto mb-4" />
               <p className="text-lean-black-70">Loading analyses...</p>
             </div>
           )}
@@ -387,6 +392,5 @@ const AllAnalysesPage = ({ user, onSignOut }) => {
   );
 };
 
-// Export to window
-window.AllAnalysesPage = AllAnalysesPage;
+export default AllAnalysesPage;
 

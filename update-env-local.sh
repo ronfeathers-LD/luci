@@ -27,10 +27,12 @@ SUPABASE_URL=http://127.0.0.1:54331
 SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
 
 # Google OAuth (for Google Sign-In)
-GOOGLE_CLIENT_ID=AIzaSyAxl8LZtt_N7I6EBjw7zIGb8EEw5OH44qk
+# NOTE: Replace with your actual credentials from Google Cloud Console
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 
 # Gemini API (for sentiment analysis)
-GEMINI_API_KEY=AIzaSyAxl8LZtt_N7I6EBjw7zIGb8EEw5OH44qk
+# NOTE: Replace with your actual API key from Google AI Studio
+GEMINI_API_KEY=your-gemini-api-key
 
 # Optional: Override default port
 PORT=3000

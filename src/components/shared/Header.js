@@ -1,33 +1,20 @@
 // Global Header Component
 // Used across all pages for consistent navigation
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 
 const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
-  const { useState, useEffect } = React;
-  
-  // Track current path for active tab highlighting
-  const [currentPath, setCurrentPath] = useState(window.location.pathname);
-
-  useEffect(() => {
-    const handleLocationChange = () => {
-      setCurrentPath(window.location.pathname);
-    };
-
-    // Listen for popstate events (back/forward buttons and programmatic navigation)
-    window.addEventListener('popstate', handleLocationChange);
-    
-    // Also listen for custom navigation events
-    window.addEventListener('locationchange', handleLocationChange);
-
-    return () => {
-      window.removeEventListener('popstate', handleLocationChange);
-      window.removeEventListener('locationchange', handleLocationChange);
-    };
-  }, []);
+  const router = useRouter();
+  const pathname = usePathname();
+  const currentPath = pathname || '/';
 
   // Helper function to check if user has admin role (case-insensitive)
-  const hasAdminRole = (user) => {
-    if (!user || !user.roles) return false;
-    return user.roles.some(role => role.name && role.name.toLowerCase() === 'admin');
+  const hasAdminRole = (userToCheck = user) => {
+    if (!userToCheck || !userToCheck.roles) return false;
+    return userToCheck.roles.some(role => role.name && role.name.toLowerCase() === 'admin');
   };
 
   // Check if a tab is active
@@ -38,6 +25,14 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
     return currentPath.startsWith(path);
   };
 
+  // Get build version for cache busting
+  const getBuildVersion = () => {
+    if (typeof window !== 'undefined' && window.getBuildVersion) {
+      return window.getBuildVersion();
+    }
+    return Date.now().toString();
+  };
+
   return (
     <header className="bg-lean-black px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0">
       <div className="max-w-6xl mx-auto">
@@ -46,10 +41,10 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
           <div className="flex items-center gap-4">
             {/* LD Logo */}
             <img 
-              src={`/ld-logo-abbr-green.png?v=${window.getBuildVersion()}`}
+              src={`/ld-logo-abbr-green.png?v=${getBuildVersion()}`}
               alt="LeanData Logo" 
               className="h-12 w-auto flex-shrink-0"
-              key={`logo-${window.getBuildVersion()}`}
+              key={`logo-${getBuildVersion()}`}
             />
             <div className="text-left">
               <h1 className="typography-heading text-[#f7f7f7] mb-1">
@@ -78,13 +73,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
             <div className="flex items-center gap-3 bg-lean-black/50 px-4 py-2 rounded-lg">
               <div className="text-right">
                 <button
-                  onClick={() => {
-                    if (window.navigate) {
-                      window.navigate('/user');
-                    } else {
-                      window.location.href = '/user';
-                    }
-                  }}
+                  onClick={() => router.push('/user')}
                   className="text-sm font-medium text-[#f7f7f7] hover:text-lean-green transition-colors cursor-pointer text-right"
                   aria-label="Go to account settings"
                 >
@@ -133,7 +122,9 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
                 if (onSignOut) {
                   onSignOut();
                 } else {
-                  window.google?.accounts?.id.disableAutoSelect();
+                  if (typeof window !== 'undefined' && window.google?.accounts?.id) {
+                    window.google.accounts.id.disableAutoSelect();
+                  }
                   localStorage.removeItem('userInfo');
                   window.location.reload();
                 }
@@ -149,13 +140,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
         <div className="flex items-center justify-between gap-1 border-b border-[#f7f7f7]/20">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/');
-                } else {
-                  window.location.href = '/';
-                }
-              }}
+              onClick={() => router.push('/')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 isActive('/') && currentPath !== '/user' && currentPath !== '/calendar' && currentPath !== '/analyze' && !currentPath.startsWith('/admin') && !currentPath.startsWith('/account') && !currentPath.startsWith('/sentiment')
                   ? 'text-lean-green border-lean-green'
@@ -166,13 +151,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
               Dashboard
             </button>
             <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/analyze');
-                } else {
-                  window.location.href = '/analyze';
-                }
-              }}
+              onClick={() => router.push('/analyze')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 isActive('/analyze')
                   ? 'text-lean-green border-lean-green'
@@ -183,13 +162,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
               Analyze
             </button>
             <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/user');
-                } else {
-                  window.location.href = '/user';
-                }
-              }}
+              onClick={() => router.push('/user')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 isActive('/user')
                   ? 'text-lean-green border-lean-green'
@@ -200,13 +173,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
               My Accounts
             </button>
             <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/calendar');
-                } else {
-                  window.location.href = '/calendar';
-                }
-              }}
+              onClick={() => router.push('/calendar')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 isActive('/calendar')
                   ? 'text-lean-green border-lean-green'
@@ -219,13 +186,7 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
           </div>
           {hasAdminRole(user) && (
             <button
-              onClick={() => {
-                if (window.navigate) {
-                  window.navigate('/admin');
-                } else {
-                  window.location.href = '/admin';
-                }
-              }}
+              onClick={() => router.push('/admin')}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
                 isActive('/admin')
                   ? 'text-blue-400 border-blue-400'
@@ -242,6 +203,4 @@ const Header = ({ user, onSignOut, showHelp, setShowHelp }) => {
   );
 };
 
-// Export to window
-window.Header = Header;
-
+export default Header;
