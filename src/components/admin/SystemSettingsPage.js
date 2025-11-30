@@ -179,6 +179,7 @@ const SystemSettingsPage = ({ user, onSignOut }) => {
     { id: 'integrations', label: 'Integrations', icon: '🔌' },
     { id: 'integration_configs', label: 'Integration Configs', icon: '🔑' },
     { id: 'ai', label: 'AI Settings', icon: '🤖' },
+    { id: 'chatbot', label: 'Chatbot Prompts', icon: '💬' },
     { id: 'features', label: 'Feature Flags', icon: '🎛️' },
     { id: 'system', label: 'System Info', icon: 'ℹ️' },
   ];

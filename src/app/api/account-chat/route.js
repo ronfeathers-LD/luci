@@ -299,8 +299,85 @@ export async function POST(request) {
       ['High', 'Critical', 'Urgent'].includes(c.metadata.priority)
     );
     
-    // Build role-specific guidance
-    const roleGuidance = isCSM ? `
+    // Fetch chatbot prompt from system settings
+    let systemPrompt;
+    try {
+      const { data: promptSettings, error: promptError } = await supabase
+        .from('system_settings')
+        .select('setting_key, setting_value')
+        .eq('category', 'chatbot')
+        .in('setting_key', ['PROMPT_BASE', 'PROMPT_TEMPLATE']);
+
+      if (!promptError && promptSettings && promptSettings.length > 0) {
+        // Build prompt from settings
+        const baseSettings = {};
+        let template = null;
+        
+        promptSettings.forEach(setting => {
+          if (setting.setting_key === 'PROMPT_TEMPLATE') {
+            template = setting.setting_value;
+          } else if (setting.setting_key === 'PROMPT_BASE') {
+            Object.assign(baseSettings, setting.setting_value);
+          }
+        });
+
+        // Use template if available, otherwise build from base settings
+        if (template && template.intro) {
+          // Build prompt from template
+          const roleGuidance = isCSM 
+            ? (baseSettings.role_guidance_csm || '')
+            : (baseSettings.role_guidance_am || '');
+          
+          const roleSpecificGuidance = isCSM
+            ? (baseSettings.role_specific_csm || '')
+            : (baseSettings.role_specific_am || '');
+          
+          const responseStyle = (baseSettings.response_style || '').replace('{role_specific_guidance}', roleSpecificGuidance);
+          
+          const dataTypeTotalsText = Object.entries(dataTypeTotals)
+            .filter(([_, count]) => count > 0)
+            .map(([type, count]) => `- ${type}: ${count} chunk(s)`)
+            .join('\n') || '- No embeddings found';
+          
+          const dataTypeCountsText = Object.keys(dataTypeCounts).length > 0 
+            ? Object.entries(dataTypeCounts).map(([type, count]) => `- ${type}: ${count} chunk(s)`).join('\n')
+            : '- No chunks in current context';
+          
+          const healthIndicators = [
+            sentimentScore !== null 
+              ? `- Latest Sentiment Score: ${sentimentScore}/10 ${sentimentScore < 5 ? '⚠️ (Needs Attention)' : sentimentScore < 7 ? '⚠️ (Monitor)' : '✅ (Good)'}`
+              : '- No sentiment data available',
+            openCases.length > 0 
+              ? `- Open Cases: ${openCases.length} (${highPriorityCases.length} high priority) ⚠️`
+              : '- No open cases',
+            caseChunks.length > 0 
+              ? `- Total Cases: ${caseChunks.length}`
+              : ''
+          ].filter(Boolean).join('\n');
+          
+          // Replace template variables
+          systemPrompt = template.intro
+            .replace('{intro}', baseSettings.intro || `You are LUCI, an AI assistant helping ${roleType} work with the ${account.name} account.`)
+            .replace('{role_guidance}', roleGuidance)
+            .replace('{context}', context || '(No specific context available - use general knowledge carefully)')
+            .replace('{data_type_totals}', dataTypeTotalsText)
+            .replace('{data_type_counts}', dataTypeCountsText)
+            .replace('{health_indicators}', healthIndicators)
+            .replace('{response_style}', responseStyle)
+            .replace('{role_type}', roleType)
+            .replace('{account_name}', account.name);
+        } else {
+          // Fallback to hardcoded prompt if template not found
+          throw new Error('Template not found');
+        }
+      } else {
+        throw new Error('Prompt settings not found');
+      }
+    } catch (promptError) {
+      // Fallback to hardcoded prompt if settings not available
+      log('Using fallback hardcoded prompt - prompt settings not available');
+      
+      const roleGuidance = isCSM ? `
 **Your Role: Customer Success Manager (CSM)**
 Your primary focus is ensuring customer satisfaction, retention, and growth. Key responsibilities:
 - Monitor account health and customer satisfaction
@@ -318,8 +395,7 @@ Your primary focus is building relationships, driving revenue, and managing the 
 - Coordinate with internal teams (CSM, support) for customer success
 - Close deals and drive revenue growth`;
 
-    // Build system prompt
-    const systemPrompt = `You are LUCI, an AI assistant helping ${roleType} work with the ${account.name} account.
+      systemPrompt = `You are LUCI, an AI assistant helping ${roleType} work with the ${account.name} account.
 
 ${roleGuidance}
 
@@ -374,6 +450,7 @@ ${caseChunks.length > 0 ? `- Total Cases: ${caseChunks.length}` : ''}
 - "Key stakeholders to engage: [CONTACT 5] and [CONTACT 8]"
 
 **IMPORTANT**: Use only data from the context above. If information is missing, say so clearly and suggest how to gather it.`;
+    }
 
     // Build conversation history
     // Gemini API expects alternating user/model messages in contents array
