@@ -82,9 +82,14 @@ export async function generateEmbedding(text, openaiApiKey = null, geminiApiKey 
     try {
       return await generateOpenAIEmbedding(text, openaiApiKey);
     } catch (error) {
-      // If OpenAI fails and we have Gemini, fall back
-      if (geminiApiKey && error.message && !error.message.includes('API key')) {
+      // If OpenAI fails with API key error, don't fall back
+      if (error.message && (error.message.includes('API key') || error.message.includes('Invalid'))) {
+        throw error;
+      }
+      // If OpenAI fails for other reasons and we have Gemini, fall back
+      if (geminiApiKey) {
         console.warn('OpenAI embedding failed, falling back to Gemini:', error.message);
+        return await generateGeminiEmbedding(text, geminiApiKey);
       } else {
         throw error;
       }
