@@ -46,11 +46,31 @@ export async function POST(request) {
 
   try {
     const body = await request.json();
-    const { accountId, userId, query, messageHistory = [] } = body;
+    const { accountId, userId, query, messageHistory = [], userRole = 'Account Manager' } = body;
 
     if (!accountId || !userId || !query) {
       return sendErrorResponse(new Error('Missing required fields: accountId, userId, and query'), 400);
     }
+    
+    // Get user's role if not provided
+    let actualUserRole = userRole;
+    if (!actualUserRole || actualUserRole === 'Account Manager') {
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single();
+      
+      if (!userError && user) {
+        actualUserRole = user.role || 'Account Manager';
+      }
+    }
+    
+    // Normalize role names
+    const isCSM = actualUserRole?.toLowerCase().includes('csm') || 
+                  actualUserRole?.toLowerCase().includes('customer success') ||
+                  actualUserRole?.toLowerCase().includes('success manager');
+    const roleType = isCSM ? 'CSM' : 'Account Manager';
 
     const supabase = getSupabaseClient();
     const validation = validateSupabase(supabase);
@@ -263,40 +283,97 @@ export async function POST(request) {
       dataTypeCounts[chunk.type] = (dataTypeCounts[chunk.type] || 0) + 1;
     });
 
-    // Build system prompt
-    const systemPrompt = `You are an AI assistant helping analyze account data for ${account.name}.
+    // Analyze sentiment data if available
+    const sentimentChunks = contextChunks.filter(c => c.type === 'sentiment');
+    const latestSentiment = sentimentChunks.length > 0 ? sentimentChunks[0] : null;
+    const sentimentScore = latestSentiment?.metadata?.score || null;
+    
+    // Analyze cases for issues
+    const caseChunks = contextChunks.filter(c => c.type === 'case');
+    const openCases = caseChunks.filter(c => 
+      c.metadata?.status && 
+      !['Closed', 'Resolved', 'Completed'].includes(c.metadata.status)
+    );
+    const highPriorityCases = caseChunks.filter(c => 
+      c.metadata?.priority && 
+      ['High', 'Critical', 'Urgent'].includes(c.metadata.priority)
+    );
+    
+    // Build role-specific guidance
+    const roleGuidance = isCSM ? `
+**Your Role: Customer Success Manager (CSM)**
+Your primary focus is ensuring customer satisfaction, retention, and growth. Key responsibilities:
+- Monitor account health and customer satisfaction
+- Proactively address issues before they escalate
+- Drive product adoption and value realization
+- Build strong relationships with key stakeholders
+- Identify expansion and upsell opportunities
+- Ensure contract renewals` : `
+**Your Role: Account Manager (Sales)**
+Your primary focus is building relationships, driving revenue, and managing the sales cycle. Key responsibilities:
+- Build and maintain relationships with decision-makers
+- Identify new business opportunities and expansion
+- Manage the sales pipeline and forecast
+- Understand customer needs and pain points
+- Coordinate with internal teams (CSM, support) for customer success
+- Close deals and drive revenue growth`;
 
-You have access to the following account-specific information:
+    // Build system prompt
+    const systemPrompt = `You are LUCI, an AI assistant helping ${roleType} work with the ${account.name} account.
+
+${roleGuidance}
+
+**Account Context:**
 ${context || '(No specific context available - use general knowledge carefully)'}
 
-Available data types in this account (total chunks):
+**Available Data:**
+Total chunks by type:
 ${Object.entries(dataTypeTotals)
   .filter(([_, count]) => count > 0)
-  .map(([type, count]) => `- ${type}: ${count} chunk(s) total`)
-  .join('\n') || '- No embeddings found for this account'}
+  .map(([type, count]) => `- ${type}: ${count} chunk(s)`)
+  .join('\n') || '- No embeddings found'}
 
-Data types in current context (most relevant for this query):
+Current context chunks:
 ${Object.keys(dataTypeCounts).length > 0 
   ? Object.entries(dataTypeCounts).map(([type, count]) => `- ${type}: ${count} chunk(s)`).join('\n')
-  : '- No data chunks retrieved in current context'
+  : '- No chunks in current context'
 }
 
-Note: The context above shows only the most relevant chunks for the current query. The account has the following data types available:
-- account: Account information (name, tier, contract value, industry, etc.)
-- contact: Contact details (names, emails, titles, status, phone numbers)
-- case: Support cases (case numbers, subjects, descriptions, status, priority, dates)
-- transcription: Meeting transcriptions (call recordings, meeting notes, speaker information)
-- sentiment: Sentiment analyses (scores, summaries, comprehensive analyses)
+**Account Health Indicators:**
+${sentimentScore !== null ? `- Latest Sentiment Score: ${sentimentScore}/10 ${sentimentScore < 5 ? '⚠️ (Needs Attention)' : sentimentScore < 7 ? '⚠️ (Monitor)' : '✅ (Good)'}` : '- No sentiment data available'}
+${openCases.length > 0 ? `- Open Cases: ${openCases.length} (${highPriorityCases.length} high priority) ⚠️` : '- No open cases'}
+${caseChunks.length > 0 ? `- Total Cases: ${caseChunks.length}` : ''}
 
-Your responses should:
-- Be concise and actionable
-- Cite specific data when making claims (mention the data type and source, e.g., [CONTACT 1], [CASE 2])
-- When asked about available data, mention all data types that exist, even if not in the current context
-- Focus on insights and recommendations
-- Acknowledge when you don't have information in the provided context
-- Only use data provided in the context above - do not make assumptions about data not shown
+**Your Response Style:**
+1. **Be Proactive & Actionable**: Don't just report data - provide specific next steps and recommendations
+2. **Daily Activities**: When asked about daily activities or "what should I do", provide a prioritized list of:
+   - Immediate actions (urgent issues, high-priority cases)
+   - Relationship building (key contacts to reach out to, follow-ups needed)
+   - Account health monitoring (sentiment trends, case patterns)
+   - Strategic initiatives (expansion opportunities, product adoption)
+3. **Sentiment Improvement**: When sentiment is low or asked about improving sentiment:
+   - Identify root causes from cases, transcriptions, and sentiment analyses
+   - Provide specific, actionable recommendations
+   - Suggest outreach strategies to key stakeholders
+   - Recommend follow-up actions and timelines
+4. **Role-Specific Guidance**:
+   ${isCSM ? `- Focus on customer health, satisfaction, and retention
+   - Identify at-risk accounts and proactive intervention opportunities
+   - Suggest product adoption strategies and value realization activities
+   - Recommend expansion opportunities based on usage and engagement` : `- Focus on relationship building and revenue opportunities
+   - Identify decision-makers and influencers to engage
+   - Suggest strategic touchpoints and sales activities
+   - Recommend cross-sell/upsell opportunities based on account data`}
+5. **Data Citations**: Always cite sources (e.g., [CASE 3], [TRANSCRIPTION 1], [SENTIMENT 2])
+6. **Honesty**: Acknowledge when data is missing or insufficient
 
-IMPORTANT: Only use data provided in the context. If the context doesn't contain relevant information, say so clearly.`;
+**Example Response Patterns:**
+- "Based on [CASE 2], I recommend..."
+- "Here are your top 3 priorities for today:"
+- "To improve sentiment, consider these actions:"
+- "Key stakeholders to engage: [CONTACT 5] and [CONTACT 8]"
+
+**IMPORTANT**: Use only data from the context above. If information is missing, say so clearly and suggest how to gather it.`;
 
     // Build conversation history
     // Gemini API expects alternating user/model messages in contents array
