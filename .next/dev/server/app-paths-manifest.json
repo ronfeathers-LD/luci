@@ -1,1 +1,13 @@
-{}
+{
+  "/account/[id]/data/page": "app/account/[id]/data/page.js",
+  "/api/account-embeddings/route": "app/api/account-embeddings/route.js",
+  "/api/analyze-sentiment/route": "app/api/analyze-sentiment/route.js",
+  "/api/avoma-transcription/route": "app/api/avoma-transcription/route.js",
+  "/api/google-calendar/route": "app/api/google-calendar/route.js",
+  "/api/salesforce-accounts/route": "app/api/salesforce-accounts/route.js",
+  "/api/salesforce-cases/route": "app/api/salesforce-cases/route.js",
+  "/api/salesforce-contacts/route": "app/api/salesforce-contacts/route.js",
+  "/api/sentiment-analysis/route": "app/api/sentiment-analysis/route.js",
+  "/page": "app/page.js",
+  "/user/page": "app/user/page.js"
+}

@@ -57,15 +57,32 @@ export async function POST(request) {
       return sendErrorResponse(new Error(validation.error.message), validation.error.status);
     }
 
+    // If accountId looks like a Salesforce ID (no dashes), find the UUID
+    let actualAccountId = accountId;
+    if (!accountId.includes('-')) {
+      // It's a Salesforce ID, need to find the UUID
+      const { data: accountBySalesforceId, error: accountError } = await supabase
+        .from('accounts')
+        .select('id, salesforce_id')
+        .eq('salesforce_id', accountId)
+        .single();
+      
+      if (accountError || !accountBySalesforceId) {
+        return sendErrorResponse(new Error('Account not found'), 404);
+      }
+      
+      actualAccountId = accountBySalesforceId.id;
+    }
+
     // Verify account access
-    const hasAccess = await verifyAccountAccess(supabase, userId, accountId);
+    const hasAccess = await verifyAccountAccess(supabase, userId, actualAccountId);
     if (!hasAccess) {
-      logError('Account access denied', { userId, accountId });
+      logError('Account access denied', { userId, accountId, actualAccountId });
       // Check if account exists
       const { data: accountCheck } = await supabase
         .from('accounts')
         .select('id')
-        .eq('id', accountId)
+        .eq('id', actualAccountId)
         .single();
       
       if (!accountCheck) {
@@ -77,11 +94,11 @@ export async function POST(request) {
         .from('user_accounts')
         .select('id')
         .eq('user_id', userId)
-        .eq('account_id', accountId)
+        .eq('account_id', actualAccountId)
         .maybeSingle();
       
       if (!relationshipCheck) {
-        logError('No user_accounts relationship found', { userId, accountId });
+        logError('No user_accounts relationship found', { userId, accountId, actualAccountId });
         return sendErrorResponse(
           new Error('You do not have access to this account. Please add it to your account list first.'), 
           403
@@ -95,7 +112,7 @@ export async function POST(request) {
     const { data: account, error: accountError } = await supabase
       .from('accounts')
       .select('id, name, salesforce_id')
-      .eq('id', accountId)
+      .eq('id', actualAccountId)
       .single();
 
     if (accountError || !account) {
@@ -114,7 +131,7 @@ export async function POST(request) {
       const { data: similarEmbeddings, error: searchError } = await supabase
         .rpc('match_account_embeddings', {
           query_embedding: queryEmbeddingStr,
-          match_account_id: accountId,
+          match_account_id: actualAccountId,
           match_threshold: 0.7, // Minimum similarity threshold
           match_count: 5, // Return top 5 most similar chunks
         });
@@ -136,7 +153,7 @@ export async function POST(request) {
       const { data: allEmbeddings, error: fetchError } = await supabase
         .from('account_embeddings')
         .select('content, data_type, metadata, source_id')
-        .eq('account_id', accountId)
+        .eq('account_id', actualAccountId)
         .limit(10); // Limit to 10 for context size
 
       if (!fetchError && allEmbeddings && allEmbeddings.length > 0) {

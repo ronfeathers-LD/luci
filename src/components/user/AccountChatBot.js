@@ -8,7 +8,7 @@ import { useState, useRef, useEffect } from 'react';
 import { LoaderIcon } from '../shared/Icons';
 import { deduplicatedFetch, logError } from '../../lib/client-utils';
 
-const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId }) => {
+const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, user }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,8 +19,12 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
 
   // Check if embeddings exist
   useEffect(() => {
+    // accountId should be UUID, not Salesforce ID
     if (accountId && userId && isOpen) {
-      checkEmbeddings();
+      // Only check if accountId looks like a UUID (has dashes)
+      if (accountId.includes('-')) {
+        checkEmbeddings();
+      }
     }
   }, [accountId, userId, isOpen]);
 
@@ -31,6 +35,12 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
 
   const checkEmbeddings = async () => {
     try {
+      // Validate accountId is a UUID (not Salesforce ID)
+      if (!accountId || !accountId.includes('-')) {
+        logError('Invalid accountId format - expected UUID:', accountId);
+        return;
+      }
+
       const response = await deduplicatedFetch(
         `/api/account-embeddings?accountId=${accountId}&userId=${userId}`
       );
@@ -38,6 +48,9 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
       if (response.ok) {
         const data = await response.json();
         setHasEmbeddings(data.hasEmbeddings);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        logError('Error checking embeddings:', errorData);
       }
     } catch (err) {
       logError('Error checking embeddings:', err);
@@ -46,6 +59,13 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
 
   const generateEmbeddings = async () => {
     if (!accountId || !userId) return;
+
+    // Validate accountId is a UUID (not Salesforce ID)
+    if (!accountId.includes('-')) {
+      addMessage('system', 'Error: Invalid account ID format. Please refresh the page.');
+      logError('Invalid accountId format - expected UUID:', accountId);
+      return;
+    }
 
     setGeneratingEmbeddings(true);
     try {
@@ -123,6 +143,13 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
   const handleSend = async (e) => {
     e.preventDefault();
     if (!input.trim() || loading) return;
+
+    // Validate accountId is a UUID (not Salesforce ID)
+    if (!accountId || !accountId.includes('-')) {
+      addMessage('system', 'Error: Invalid account ID. Please refresh the page.');
+      logError('Invalid accountId format - expected UUID:', accountId);
+      return;
+    }
 
     const userMessage = input.trim();
     setInput('');
@@ -263,8 +290,33 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId })
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
             </div>
             {message.role === 'user' && (
-              <div className="w-8 h-8 rounded-full bg-lean-green flex items-center justify-center text-lean-white text-sm font-semibold flex-shrink-0">
-                You
+              <div className="w-8 h-8 rounded-full bg-lean-green flex items-center justify-center flex-shrink-0 overflow-hidden">
+                {user?.picture ? (
+                  <img
+                    src={user.picture}
+                    alt={user.name || 'User'}
+                    className="w-8 h-8 rounded-full object-cover"
+                    onError={(e) => {
+                      // Show fallback initials if image fails
+                      e.target.style.display = 'none';
+                      const fallback = e.target.nextSibling;
+                      if (fallback) {
+                        fallback.style.display = 'flex';
+                      }
+                    }}
+                  />
+                ) : null}
+                <div 
+                  className="w-8 h-8 rounded-full bg-lean-green flex items-center justify-center text-lean-white text-xs font-semibold"
+                  style={{ display: user?.picture ? 'none' : 'flex' }}
+                >
+                  {user?.name 
+                    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)
+                    : user?.email 
+                      ? user.email.substring(0, 2).toUpperCase()
+                      : 'U'
+                  }
+                </div>
               </div>
             )}
           </div>

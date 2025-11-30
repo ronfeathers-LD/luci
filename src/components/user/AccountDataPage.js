@@ -955,12 +955,13 @@ const AccountDataPage = ({ user, onSignOut, accountId }) => {
       </main>
       
       {/* Account ChatBot */}
-      {account && user && (
+      {account && user && account.id && (
         <AccountChatBot
           accountId={account.id}
           userId={user.id}
           accountName={account.name}
           salesforceAccountId={account.salesforceId}
+          user={user}
         />
       )}
     </div>

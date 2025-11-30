@@ -132,11 +132,28 @@ export async function POST(request) {
       return sendErrorResponse(new Error('Access denied to this account'), 403);
     }
 
+    // If accountId looks like a Salesforce ID (no dashes), find the UUID
+    let actualAccountId = accountId;
+    if (!accountId.includes('-')) {
+      // It's a Salesforce ID, need to find the UUID
+      const { data: accountBySalesforceId, error: accountError } = await supabase
+        .from('accounts')
+        .select('id, salesforce_id')
+        .eq('salesforce_id', accountId)
+        .single();
+      
+      if (accountError || !accountBySalesforceId) {
+        return sendErrorResponse(new Error('Account not found'), 404);
+      }
+      
+      actualAccountId = accountBySalesforceId.id;
+    }
+
     // Get account info for salesforce_account_id
     const { data: account, error: accountError } = await supabase
       .from('accounts')
       .select('id, salesforce_id')
-      .eq('id', accountId)
+      .eq('id', actualAccountId)
       .single();
 
     if (accountError || !account) {
@@ -153,7 +170,7 @@ export async function POST(request) {
         try {
           const embedding = await generateEmbedding(accountText, apiKey);
           embeddingsToInsert.push({
-            account_id: accountId,
+            account_id: actualAccountId,
             salesforce_account_id: salesforceAccountId,
             data_type: 'account',
             source_id: accountId,
@@ -293,7 +310,7 @@ export async function POST(request) {
       const { error: deleteError } = await supabase
         .from('account_embeddings')
         .delete()
-        .eq('account_id', accountId);
+        .eq('account_id', actualAccountId);
 
       if (deleteError) {
         logError('Error deleting existing embeddings:', deleteError);

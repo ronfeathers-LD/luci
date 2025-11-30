@@ -531,8 +531,7 @@ if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelper
  * Provides client-side utilities that replace window.* globals
  * Can be imported in components
  */ /**
- * Deduplicated fetch wrapper
- * Falls back to regular fetch if deduplication script isn't loaded
+ * Request deduplication map (in-memory, shared across components)
  */ __turbopack_context__.s([
     "categorizeContactLevel",
     ()=>categorizeContactLevel,
@@ -558,11 +557,38 @@ if (typeof globalThis.$RefreshHelpers$ === 'object' && globalThis.$RefreshHelper
     ()=>trackAnalytics
 ]);
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$build$2f$polyfills$2f$process$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = /*#__PURE__*/ __turbopack_context__.i("[project]/node_modules/next/dist/build/polyfills/process.js [app-client] (ecmascript)");
-function deduplicatedFetch(...args) {
-    if (("TURBOPACK compile-time value", "object") !== 'undefined' && window.deduplicatedFetch) {
-        return window.deduplicatedFetch(...args);
+const pendingRequests = new Map();
+/**
+ * Generate a cache key from request parameters
+ */ function getRequestKey(url, options = {}) {
+    const method = options.method || 'GET';
+    const body = options.body ? typeof options.body === 'string' ? options.body : JSON.stringify(options.body) : '';
+    return `${method}:${url}:${body}`;
+}
+function deduplicatedFetch(url, options = {}) {
+    // Use existing window implementation if available (for backwards compatibility)
+    if (("TURBOPACK compile-time value", "object") !== 'undefined' && window.deduplicatedFetch && window.deduplicatedFetch !== deduplicatedFetch) {
+        return window.deduplicatedFetch(url, options);
     }
-    return fetch(...args);
+    const key = getRequestKey(url, options);
+    // If request is already in progress, return the existing promise
+    if (pendingRequests.has(key)) {
+        return pendingRequests.get(key);
+    }
+    // Create new request
+    const requestPromise = fetch(url, options).then((response)=>{
+        // Remove from pending after a short delay to allow for rapid re-requests
+        setTimeout(()=>{
+            pendingRequests.delete(key);
+        }, 100);
+        return response;
+    }).catch((error)=>{
+        // Remove from pending on error
+        pendingRequests.delete(key);
+        throw error;
+    });
+    pendingRequests.set(key, requestPromise);
+    return requestPromise;
 }
 function logError(message, error, ...args) {
     if (("TURBOPACK compile-time value", "object") !== 'undefined' && window.logError) {
@@ -847,7 +873,7 @@ const UserPage = ({ user, onSignOut })=>{
             try {
                 setAddingAccountId(account.salesforceId || account.id);
                 setError(null);
-                const response = await fetch('/api/users?action=accounts', {
+                const response = await fetch('/api/users/accounts', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -901,7 +927,7 @@ const UserPage = ({ user, onSignOut })=>{
             try {
                 setRemovingAccountId(account.salesforceId || account.id);
                 setError(null);
-                const response = await fetch('/api/users?action=accounts', {
+                const response = await fetch('/api/users/accounts', {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json'
@@ -990,7 +1016,7 @@ const UserPage = ({ user, onSignOut })=>{
                 setBulkRemoving(true);
                 setError(null);
                 const accountIds = Array.from(selectedAccounts);
-                const response = await fetch('/api/users?action=accounts', {
+                const response = await fetch('/api/users/accounts', {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1036,7 +1062,7 @@ const UserPage = ({ user, onSignOut })=>{
                 setRefreshingFromSalesforce(true);
                 setError(null);
                 // First, clear all user-account relationships
-                const clearResponse = await fetch('/api/users?action=accounts', {
+                const clearResponse = await fetch('/api/users/accounts', {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json'
