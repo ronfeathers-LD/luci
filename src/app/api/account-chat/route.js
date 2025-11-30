@@ -240,20 +240,82 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
       parts: [{ text: query }],
     });
 
+    // Discover available Gemini models and try them
+    async function discoverAvailableModels(apiVersion) {
+      try {
+        const listUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models?key=${geminiApiKey}`;
+        const response = await fetch(listUrl, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (!response.ok) {
+          return [];
+        }
+        
+        const data = await response.json();
+        if (!data.models) return [];
+        
+        // Filter models that support generateContent
+        return data.models
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => ({ name: m.name.replace(`models/`, ''), version: apiVersion }));
+      } catch (error) {
+        logError(`Error discovering models for ${apiVersion}:`, error);
+        return [];
+      }
+    }
+    
+    // Build list of models to try
+    let modelsToTry = [];
+    const userModel = process.env.GEMINI_MODEL;
+    
+    // Try to discover available models
+    let discoveredModels = [];
+    for (const version of ['v1', 'v1beta']) {
+      discoveredModels = await discoverAvailableModels(version);
+      if (discoveredModels.length > 0) {
+        log(`Discovered ${discoveredModels.length} available models in ${version} API`);
+        break;
+      }
+    }
+    
+    if (discoveredModels.length > 0) {
+      // Sort models: prefer flash (faster) over pro, prefer shorter names (more stable)
+      const sortedModels = discoveredModels.sort((a, b) => {
+        const aIsFlash = a.name.includes('flash');
+        const bIsFlash = b.name.includes('flash');
+        if (aIsFlash !== bIsFlash) return bIsFlash ? 1 : -1; // Prefer flash (faster)
+        const aIsPro = a.name.includes('pro');
+        const bIsPro = b.name.includes('pro');
+        if (aIsPro !== bIsPro) return bIsPro ? 1 : -1;
+        return a.name.length - b.name.length;
+      }).slice(0, 5); // Use top 5 models
+      
+      modelsToTry = sortedModels.map(m => ({ model: m.name, version: m.version }));
+      // Add user's preferred model at the front if specified
+      if (userModel) {
+        modelsToTry.unshift({ model: userModel, version: 'v1beta' });
+      }
+      log(`Will try models in order: ${modelsToTry.map(m => `${m.model} (${m.version})`).join(', ')}`);
+    } else {
+      log('Could not discover models via API, using fallback list');
+      modelsToTry = [
+        { model: userModel || 'gemini-1.5-flash-latest', version: 'v1beta' },
+        { model: 'gemini-1.5-flash-latest', version: 'v1beta' },
+        { model: 'gemini-1.5-pro-latest', version: 'v1beta' },
+        { model: 'gemini-flash-latest', version: 'v1beta' },
+        { model: 'gemini-pro', version: 'v1' },
+      ].filter(m => m.model); // Remove null/undefined
+    }
+    
     // Call Gemini API - try multiple models for compatibility
     let reply;
-    const modelsToTry = [
-      process.env.GEMINI_MODEL || 'gemini-1.5-pro-latest', // Try user preference or latest
-      'gemini-1.5-pro-latest', // Latest stable version
-      'gemini-1.5-flash-latest', // Faster alternative
-      'gemini-pro', // Fallback to older model
-    ].filter((v, i, a) => a.indexOf(v) === i); // Remove duplicates
-    
     let lastError = null;
     
-    for (const modelName of modelsToTry) {
+    for (const { model: modelName, version: apiVersion } of modelsToTry) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
         const requestBody = {
           contents: contents,
@@ -265,7 +327,7 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
           },
         };
         
-        log(`Calling Gemini API with model ${modelName} and ${contents.length} content items`);
+        log(`Calling Gemini API with model ${modelName} (${apiVersion}) and ${contents.length} content items`);
 
         const response = await fetch(url, {
           method: 'POST',
@@ -280,30 +342,36 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
           
           // If model not found, try next one
           if (response.status === 404) {
-            log(`Model ${modelName} not found, trying next model...`);
-            lastError = new Error(`Model ${modelName} not available`);
+            log(`Model ${modelName} (${apiVersion}) not found, trying next model...`);
+            lastError = new Error(`Model ${modelName} not available in ${apiVersion}`);
             continue;
           }
           
-          logError('Gemini API error:', { status: response.status, statusText: response.statusText, error: errorData, model: modelName });
-          return sendErrorResponse(
-            new Error(`Gemini API error: ${response.status} ${response.statusText}`),
-            response.status
-          );
+          logError('Gemini API error:', { status: response.status, statusText: response.statusText, error: errorData, model: modelName, version: apiVersion });
+          // Don't return immediately - try next model unless it's a non-404 error that suggests all will fail
+          if (response.status === 403 || response.status === 401) {
+            return sendErrorResponse(
+              new Error(`Gemini API error: ${response.status} ${response.statusText} - Check your API key`),
+              response.status
+            );
+          }
+          lastError = new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+          continue;
         }
 
         const data = await response.json();
 
         if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
           logError('Invalid Gemini response format:', data);
-          return sendErrorResponse(new Error('Invalid response format from Gemini API'), 500);
+          lastError = new Error('Invalid response format from Gemini API');
+          continue;
         }
 
         reply = data.candidates[0].content.parts[0].text;
-        log(`Successfully got response from model ${modelName}`);
+        log(`Successfully got response from model ${modelName} (${apiVersion})`);
         break; // Success, exit loop
       } catch (geminiError) {
-        logError(`Error calling Gemini API with model ${modelName}:`, geminiError);
+        logError(`Error calling Gemini API with model ${modelName} (${apiVersion}):`, geminiError);
         lastError = geminiError;
         // Continue to next model
         continue;
@@ -314,7 +382,7 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
       // All models failed
       logError('All Gemini models failed:', lastError);
       return sendErrorResponse(
-        new Error(`Failed to generate response: ${lastError?.message || 'All models failed'}`),
+        new Error(`Failed to generate response: ${lastError?.message || 'All models failed. Please check your Gemini API key and billing status.'}`),
         500
       );
     }
