@@ -120,7 +120,14 @@ export async function POST(request) {
     }
 
     // Generate embedding for the query
-    const queryEmbedding = await generateEmbedding(query, apiKey);
+    let queryEmbedding;
+    try {
+      queryEmbedding = await generateEmbedding(query, apiKey);
+    } catch (embedError) {
+      logError('Error generating query embedding:', embedError);
+      return sendErrorResponse(new Error(`Failed to process query: ${embedError.message}`), 500);
+    }
+    
     const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
 
     // Find similar embeddings using vector similarity search
@@ -128,6 +135,7 @@ export async function POST(request) {
     let contextChunks = [];
     
     try {
+      // Try RPC function first (more efficient)
       const { data: similarEmbeddings, error: searchError } = await supabase
         .rpc('match_account_embeddings', {
           query_embedding: queryEmbeddingStr,
@@ -136,15 +144,19 @@ export async function POST(request) {
           match_count: 5, // Return top 5 most similar chunks
         });
 
-      if (!searchError && similarEmbeddings) {
+      if (!searchError && similarEmbeddings && similarEmbeddings.length > 0) {
         contextChunks = similarEmbeddings.map(emb => ({
           content: emb.content,
           type: emb.data_type,
           metadata: emb.metadata,
         }));
+        log(`Found ${contextChunks.length} similar embeddings via RPC`);
       } else {
-        // RPC function might not exist yet or error occurred
-        log('RPC function error or not found, using fallback query');
+        if (searchError) {
+          logError('RPC function error:', searchError);
+        }
+        // RPC function might not exist yet or error occurred, use fallback
+        log('RPC function not available or no results, using fallback query');
         throw new Error('RPC function not available');
       }
     } catch (rpcError) {
@@ -156,12 +168,18 @@ export async function POST(request) {
         .eq('account_id', actualAccountId)
         .limit(10); // Limit to 10 for context size
 
-      if (!fetchError && allEmbeddings && allEmbeddings.length > 0) {
+      if (fetchError) {
+        logError('Error fetching embeddings:', fetchError);
+        // Continue with empty context - let Gemini handle it
+      } else if (allEmbeddings && allEmbeddings.length > 0) {
         contextChunks = allEmbeddings.map(emb => ({
           content: emb.content,
           type: emb.data_type,
           metadata: emb.metadata,
         }));
+        log(`Found ${contextChunks.length} embeddings via fallback`);
+      } else {
+        log('No embeddings found for this account');
       }
     }
 
@@ -200,49 +218,56 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
     });
 
     // Call Gemini API
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+    let reply;
+    try {
+      const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    const requestBody = {
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: systemPrompt }],
+      const requestBody = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: systemPrompt }],
+          },
+          ...conversationHistory,
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
         },
-        ...conversationHistory,
-      ],
-      generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
-        maxOutputTokens: 1024,
-      },
-    };
+      };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      logError('Gemini API error:', errorData);
-      return sendErrorResponse(
-        new Error(`Gemini API error: ${response.status} ${response.statusText}`),
-        response.status
-      );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        logError('Gemini API error:', { status: response.status, statusText: response.statusText, error: errorData });
+        return sendErrorResponse(
+          new Error(`Gemini API error: ${response.status} ${response.statusText}`),
+          response.status
+        );
+      }
+
+      const data = await response.json();
+
+      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+        logError('Invalid Gemini response format:', data);
+        return sendErrorResponse(new Error('Invalid response format from Gemini API'), 500);
+      }
+
+      reply = data.candidates[0].content.parts[0].text;
+    } catch (geminiError) {
+      logError('Error calling Gemini API:', geminiError);
+      return sendErrorResponse(new Error(`Failed to generate response: ${geminiError.message}`), 500);
     }
-
-    const data = await response.json();
-
-    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-      return sendErrorResponse(new Error('Invalid response format from Gemini API'), 500);
-    }
-
-    const reply = data.candidates[0].content.parts[0].text;
 
     return sendSuccessResponse({
       reply,
