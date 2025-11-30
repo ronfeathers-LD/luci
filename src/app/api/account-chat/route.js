@@ -206,15 +206,27 @@ Your responses should:
 IMPORTANT: Only use data provided in the context. If the context doesn't contain relevant information, say so clearly.`;
 
     // Build conversation history
-    const conversationHistory = messageHistory
+    // Gemini API expects alternating user/model messages in contents array
+    const contents = [];
+    
+    // Add system prompt as first user message
+    contents.push({
+      role: 'user',
+      parts: [{ text: systemPrompt }],
+    });
+    
+    // Add conversation history (alternating user/model)
+    messageHistory
       .slice(-5) // Last 5 messages for context
-      .map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      }));
+      .forEach(msg => {
+        contents.push({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.content }],
+        });
+      });
 
     // Add current query
-    conversationHistory.push({
+    contents.push({
       role: 'user',
       parts: [{ text: query }],
     });
@@ -226,13 +238,7 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
       const requestBody = {
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: systemPrompt }],
-          },
-          ...conversationHistory,
-        ],
+        contents: contents,
         generationConfig: {
           temperature: 0.7,
           topK: 40,
@@ -240,6 +246,8 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
           maxOutputTokens: 1024,
         },
       };
+      
+      log(`Calling Gemini API with ${contents.length} content items`);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -281,7 +289,17 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
     });
   } catch (error) {
     logError('Error in POST /api/account-chat:', error);
-    return sendErrorResponse(error, 500);
+    // In production, log the actual error but return sanitized message
+    // The actual error details are in server logs
+    const errorMessage = error?.message || 'Unknown error occurred';
+    logError('Full error details:', { 
+      message: errorMessage, 
+      stack: error?.stack,
+      accountId,
+      userId,
+      queryLength: query?.length 
+    });
+    return sendErrorResponse(new Error(`Chat error: ${errorMessage}`), 500);
   }
 }
 
