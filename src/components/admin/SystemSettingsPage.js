@@ -1485,13 +1485,6 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     },
   ];
 
-  // Debug info
-  const hasSettings = settings && Object.keys(settings).length > 0;
-  const hasPromptBase = settings?.PROMPT_BASE;
-  const hasPromptTemplate = settings?.PROMPT_TEMPLATE;
-  const promptBaseValue = settings?.PROMPT_BASE?.value;
-  const promptTemplateValue = settings?.PROMPT_TEMPLATE?.value;
-
   return (
     <div>
       <h2 className="text-2xl font-bold text-lean-black mb-6">Chatbot Prompts</h2>
