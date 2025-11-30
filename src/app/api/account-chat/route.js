@@ -323,7 +323,7 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 4096, // Increased from 1024 to allow longer responses
           },
         };
         
