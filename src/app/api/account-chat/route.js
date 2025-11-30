@@ -206,15 +206,35 @@ export async function POST(request) {
       .map((chunk, idx) => `[${chunk.type.toUpperCase()} ${idx + 1}]\n${chunk.content}`)
       .join('\n\n---\n\n');
 
+    // Get counts of available data types from embeddings
+    const dataTypeCounts = {};
+    contextChunks.forEach(chunk => {
+      dataTypeCounts[chunk.type] = (dataTypeCounts[chunk.type] || 0) + 1;
+    });
+
     // Build system prompt
     const systemPrompt = `You are an AI assistant helping analyze account data for ${account.name}.
 
 You have access to the following account-specific information:
 ${context || '(No specific context available - use general knowledge carefully)'}
 
+Available data types in this account:
+${Object.keys(dataTypeCounts).length > 0 
+  ? Object.entries(dataTypeCounts).map(([type, count]) => `- ${type}: ${count} chunk(s) in current context`).join('\n')
+  : '- No data chunks retrieved in current context'
+}
+
+Note: The context above shows only the most relevant chunks for the current query. The account may have additional data of these types:
+- account: Account information (name, tier, contract value, industry, etc.)
+- contact: Contact details (names, emails, titles, status, phone numbers)
+- case: Support cases (case numbers, subjects, descriptions, status, priority, dates)
+- transcription: Meeting transcriptions (call recordings, meeting notes, speaker information)
+- sentiment: Sentiment analyses (scores, summaries, comprehensive analyses)
+
 Your responses should:
 - Be concise and actionable
-- Cite specific data when making claims (mention the data type and source)
+- Cite specific data when making claims (mention the data type and source, e.g., [CONTACT 1], [CASE 2])
+- When asked about available data, mention all data types that exist, even if not in the current context
 - Focus on insights and recommendations
 - Acknowledge when you don't have information in the provided context
 - Only use data provided in the context above - do not make assumptions about data not shown
