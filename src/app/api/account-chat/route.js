@@ -121,6 +121,28 @@ export async function POST(request) {
       return sendErrorResponse(new Error('Account not found'), 404);
     }
 
+    // Get counts of all data types for this account (to inform the system prompt)
+    const { data: allEmbeddingsCounts, error: countsError } = await supabase
+      .from('account_embeddings')
+      .select('data_type')
+      .eq('account_id', actualAccountId);
+
+    const dataTypeTotals = {
+      account: 0,
+      contact: 0,
+      case: 0,
+      transcription: 0,
+      sentiment: 0,
+    };
+
+    if (!countsError && allEmbeddingsCounts) {
+      allEmbeddingsCounts.forEach(emb => {
+        if (dataTypeTotals.hasOwnProperty(emb.data_type)) {
+          dataTypeTotals[emb.data_type]++;
+        }
+      });
+    }
+
     // Generate embedding for the query (prefer OpenAI, fall back to Gemini)
     let queryEmbedding;
     try {
@@ -218,13 +240,19 @@ export async function POST(request) {
 You have access to the following account-specific information:
 ${context || '(No specific context available - use general knowledge carefully)'}
 
-Available data types in this account:
+Available data types in this account (total chunks):
+${Object.entries(dataTypeTotals)
+  .filter(([_, count]) => count > 0)
+  .map(([type, count]) => `- ${type}: ${count} chunk(s) total`)
+  .join('\n') || '- No embeddings found for this account'}
+
+Data types in current context (most relevant for this query):
 ${Object.keys(dataTypeCounts).length > 0 
-  ? Object.entries(dataTypeCounts).map(([type, count]) => `- ${type}: ${count} chunk(s) in current context`).join('\n')
+  ? Object.entries(dataTypeCounts).map(([type, count]) => `- ${type}: ${count} chunk(s)`).join('\n')
   : '- No data chunks retrieved in current context'
 }
 
-Note: The context above shows only the most relevant chunks for the current query. The account may have additional data of these types:
+Note: The context above shows only the most relevant chunks for the current query. The account has the following data types available:
 - account: Account information (name, tier, contract value, industry, etc.)
 - contact: Contact details (names, emails, titles, status, phone numbers)
 - case: Support cases (case numbers, subjects, descriptions, status, priority, dates)
