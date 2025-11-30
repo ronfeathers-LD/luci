@@ -24,6 +24,10 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
       // Only check if accountId looks like a UUID (has dashes)
       if (accountId.includes('-')) {
         checkEmbeddings();
+      } else {
+        // If accountId is not a UUID, set hasEmbeddings to false to show the button
+        // The generateEmbeddings function will handle the conversion
+        setHasEmbeddings(false);
       }
     }
   }, [accountId, userId, isOpen]);
@@ -240,7 +244,7 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {hasEmbeddings === false && (
+        {(hasEmbeddings === false || (hasEmbeddings === null && !generatingEmbeddings)) && (
           <div className="bg-lean-yellow/20 border border-lean-yellow rounded-lg p-4">
             <p className="text-sm font-semibold text-lean-black mb-2">
               First-time setup required
