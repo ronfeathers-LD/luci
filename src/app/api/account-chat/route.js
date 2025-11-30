@@ -35,11 +35,13 @@ export async function POST(request) {
     return sendErrorResponse(new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  // For chat, we use Gemini. For embeddings, we'll use OpenAI if available
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  const openaiApiKey = process.env.OPENAI_API_KEY; // For query embedding
   
-  if (!apiKey) {
+  if (!geminiApiKey) {
     logError('GEMINI_API_KEY environment variable is not set');
-    return sendErrorResponse(new Error('Server configuration error'), 500);
+    return sendErrorResponse(new Error('Server configuration error: GEMINI_API_KEY required for chat'), 500);
   }
 
   try {
@@ -119,10 +121,10 @@ export async function POST(request) {
       return sendErrorResponse(new Error('Account not found'), 404);
     }
 
-    // Generate embedding for the query
+    // Generate embedding for the query (prefer OpenAI, fall back to Gemini)
     let queryEmbedding;
     try {
-      queryEmbedding = await generateEmbedding(query, apiKey);
+      queryEmbedding = await generateEmbedding(query, openaiApiKey, geminiApiKey);
     } catch (embedError) {
       logError('Error generating query embedding:', embedError);
       // Check if it's a rate limit error
@@ -242,7 +244,7 @@ IMPORTANT: Only use data provided in the context. If the context doesn't contain
     let reply;
     try {
       const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
 
       const requestBody = {
         contents: contents,

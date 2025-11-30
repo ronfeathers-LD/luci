@@ -100,11 +100,13 @@ export async function POST(request) {
     return sendErrorResponse(new Error(sizeValidation.error.message), sizeValidation.error.status);
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Prefer OpenAI for embeddings (better free tier), fall back to Gemini
+  const openaiApiKey = process.env.OPENAI_API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY;
   
-  if (!apiKey) {
-    logError('GEMINI_API_KEY environment variable is not set');
-    return sendErrorResponse(new Error('Server configuration error'), 500);
+  if (!openaiApiKey && !geminiApiKey) {
+    logError('No embedding API key available. Please set OPENAI_API_KEY or GEMINI_API_KEY');
+    return sendErrorResponse(new Error('Server configuration error: No embedding API key found'), 500);
   }
 
   try {
@@ -170,7 +172,7 @@ export async function POST(request) {
       const accountText = formatAccountDataForEmbedding(data.account);
       if (accountText) {
         try {
-          const embedding = await generateEmbedding(accountText, apiKey);
+          const embedding = await generateEmbedding(accountText, openaiApiKey, geminiApiKey);
           embeddingsToInsert.push({
             account_id: actualAccountId,
             salesforce_account_id: salesforceAccountId,

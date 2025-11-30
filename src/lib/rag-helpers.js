@@ -68,18 +68,79 @@ export function chunkText(text, chunkSize = 1000, overlap = 100) {
 }
 
 /**
- * Generate embedding using Gemini API
- * Includes rate limit handling and better error messages
+ * Generate embedding using OpenAI API (text-embedding-3-small)
+ * Falls back to Gemini if OpenAI key is not available
+ * OpenAI has a more generous free tier for embeddings
  */
-export async function generateEmbedding(text, apiKey) {
+export async function generateEmbedding(text, openaiApiKey = null, geminiApiKey = null) {
   if (!text || text.trim().length === 0) {
     throw new Error('Text cannot be empty');
   }
 
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is required');
+  // Prefer OpenAI if available (better free tier)
+  if (openaiApiKey) {
+    try {
+      return await generateOpenAIEmbedding(text, openaiApiKey);
+    } catch (error) {
+      // If OpenAI fails and we have Gemini, fall back
+      if (geminiApiKey && error.message && !error.message.includes('API key')) {
+        console.warn('OpenAI embedding failed, falling back to Gemini:', error.message);
+      } else {
+        throw error;
+      }
+    }
   }
 
+  // Fall back to Gemini if OpenAI not available
+  if (geminiApiKey) {
+    return await generateGeminiEmbedding(text, geminiApiKey);
+  }
+
+  throw new Error('No embedding API key available. Please set OPENAI_API_KEY or GEMINI_API_KEY');
+}
+
+/**
+ * Generate embedding using OpenAI API
+ */
+async function generateOpenAIEmbedding(text, apiKey) {
+  const url = 'https://api.openai.com/v1/embeddings';
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: text,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    
+    if (response.status === 429) {
+      const errorMessage = errorData?.error?.message || 'Rate limit exceeded';
+      throw new Error(`OpenAI embedding API rate limit exceeded. ${errorMessage}. Please try again later.`);
+    }
+    
+    throw new Error(`OpenAI embedding API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+  }
+
+  const data = await response.json();
+  
+  if (!data.data || !data.data[0] || !data.data[0].embedding) {
+    throw new Error('Invalid response format from OpenAI embedding API');
+  }
+
+  return data.data[0].embedding;
+}
+
+/**
+ * Generate embedding using Gemini API (fallback)
+ */
+async function generateGeminiEmbedding(text, apiKey) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
   const response = await fetch(url, {
@@ -100,13 +161,11 @@ export async function generateEmbedding(text, apiKey) {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     
-    // Handle rate limits specifically
     if (response.status === 429) {
       const errorMessage = errorData?.error?.message || 'Rate limit exceeded';
       throw new Error(`Gemini embedding API rate limit exceeded. ${errorMessage}. Please try again later or upgrade your API plan.`);
     }
     
-    // Handle quota exceeded
     if (response.status === 429 && errorData?.error?.code === 'RESOURCE_EXHAUSTED') {
       throw new Error('Gemini embedding API quota exceeded. The free tier has limited quota. Please wait or upgrade your plan.');
     }
