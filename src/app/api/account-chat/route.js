@@ -125,6 +125,13 @@ export async function POST(request) {
       queryEmbedding = await generateEmbedding(query, apiKey);
     } catch (embedError) {
       logError('Error generating query embedding:', embedError);
+      // Check if it's a rate limit error
+      if (embedError.message && embedError.message.includes('rate limit')) {
+        return sendErrorResponse(
+          new Error('API rate limit exceeded. Please try again in a few minutes.'),
+          429
+        );
+      }
       return sendErrorResponse(new Error(`Failed to process query: ${embedError.message}`), 500);
     }
     

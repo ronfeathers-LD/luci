@@ -69,6 +69,7 @@ export function chunkText(text, chunkSize = 1000, overlap = 100) {
 
 /**
  * Generate embedding using Gemini API
+ * Includes rate limit handling and better error messages
  */
 export async function generateEmbedding(text, apiKey) {
   if (!text || text.trim().length === 0) {
@@ -98,6 +99,18 @@ export async function generateEmbedding(text, apiKey) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    
+    // Handle rate limits specifically
+    if (response.status === 429) {
+      const errorMessage = errorData?.error?.message || 'Rate limit exceeded';
+      throw new Error(`Gemini embedding API rate limit exceeded. ${errorMessage}. Please try again later or upgrade your API plan.`);
+    }
+    
+    // Handle quota exceeded
+    if (response.status === 429 && errorData?.error?.code === 'RESOURCE_EXHAUSTED') {
+      throw new Error('Gemini embedding API quota exceeded. The free tier has limited quota. Please wait or upgrade your plan.');
+    }
+    
     throw new Error(`Gemini embedding API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
   }
 

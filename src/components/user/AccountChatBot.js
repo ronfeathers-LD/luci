@@ -125,10 +125,18 @@ const AccountChatBot = ({ accountId, userId, accountName, salesforceAccountId, u
         const result = await response.json();
         // Update embeddings status
         setHasEmbeddings(true);
-        addMessage('system', `Embeddings generated successfully! Processed ${result.count || 0} data chunks. You can now ask questions about this account.`);
+        const failedMsg = result.failed > 0 ? ` (${result.failed} failed due to rate limits)` : '';
+        addMessage('system', `Embeddings generated successfully! Processed ${result.count || 0} data chunks${failedMsg}. You can now ask questions about this account.`);
       } else {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to generate embeddings');
+        const errorMsg = errorData.message || errorData.error || 'Failed to generate embeddings';
+        
+        // Check if it's a rate limit error
+        if (response.status === 429 || errorMsg.includes('rate limit') || errorMsg.includes('quota')) {
+          throw new Error('API rate limit exceeded. The Gemini API free tier has limited quota. Please try again in a few hours or upgrade your API plan.');
+        }
+        
+        throw new Error(errorMsg);
       }
     } catch (err) {
       logError('Error generating embeddings:', err);

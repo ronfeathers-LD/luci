@@ -184,6 +184,7 @@ export async function POST(request) {
           });
         } catch (err) {
           logError('Error generating account embedding:', err);
+          // Track failure but don't add to insert array
         }
       }
     }
@@ -208,9 +209,10 @@ export async function POST(request) {
                 title: contact.title,
               },
             });
-          } catch (err) {
-            logError(`Error generating contact embedding for ${contact.email}:`, err);
-          }
+        } catch (err) {
+          logError(`Error generating contact embedding for ${contact.email}:`, err);
+          // Continue with other contacts - don't fail entire batch
+        }
         }
       }
     }
@@ -238,6 +240,7 @@ export async function POST(request) {
             });
           } catch (err) {
             logError(`Error generating case embedding for ${caseData.caseNumber}:`, err);
+            // Continue with other cases - don't fail entire batch
           }
         }
       }
@@ -273,6 +276,7 @@ export async function POST(request) {
               });
             } catch (err) {
               logError(`Error generating transcription embedding chunk ${i}:`, err);
+              // Continue with other chunks - don't fail entire batch
             }
           }
         }
@@ -300,13 +304,25 @@ export async function POST(request) {
             });
           } catch (err) {
             logError(`Error generating sentiment embedding:`, err);
+            // Continue with other sentiment analyses - don't fail entire batch
           }
         }
       }
     }
 
-    // Delete existing embeddings for this account (refresh)
+    // Check if we have any embeddings generated
+    if (embeddingsToInsert.length === 0) {
+      return sendSuccessResponse({
+        message: 'No data to embed',
+        count: 0,
+      });
+    }
+
+    // All embeddings should have the embedding field if successful
+    // If we have any, proceed with insertion
     if (embeddingsToInsert.length > 0) {
+
+      // Delete existing embeddings for this account (refresh)
       const { error: deleteError } = await supabase
         .from('account_embeddings')
         .delete()
@@ -333,14 +349,16 @@ export async function POST(request) {
         count: inserted?.length || 0,
       });
     } else {
-      return sendSuccessResponse({
-        message: 'No data to embed',
-        count: 0,
-      });
+      // No embeddings were generated - likely all failed due to rate limits
+      return sendErrorResponse(
+        new Error('Failed to generate embeddings. The Gemini API free tier has limited quota. Please try again later or upgrade your API plan.'),
+        429
+      );
     }
   } catch (error) {
     logError('Error in POST /api/account-embeddings:', error);
     return sendErrorResponse(error, 500);
   }
 }
+
 
