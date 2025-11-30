@@ -1,16 +1,20 @@
--- Make a user an admin
+-- Make a user an admin in local database
 -- Replace 'your-email@example.com' with your actual email address
 
--- Option 1: Grant admin role by email
+-- Step 1: Find your user ID (run this first to get your user ID)
+-- SELECT id, email, name FROM users WHERE email = 'your-email@example.com';
+
+-- Step 2: Grant admin role by email (replace email below)
 DO $$
 DECLARE
   target_user_id UUID;
   admin_role_id UUID;
+  user_email TEXT := 'your-email@example.com'; -- REPLACE WITH YOUR EMAIL
 BEGIN
-  -- Find user by email (replace with your email)
+  -- Find user by email
   SELECT id INTO target_user_id
   FROM users
-  WHERE email = 'your-email@example.com'
+  WHERE email = user_email
   LIMIT 1;
 
   -- Get admin role ID
@@ -21,7 +25,7 @@ BEGIN
 
   -- Check if user and role exist
   IF target_user_id IS NULL THEN
-    RAISE EXCEPTION 'User not found. Please check the email address.';
+    RAISE EXCEPTION 'User not found with email: %. Please check the email address or find your user ID first.', user_email;
   END IF;
 
   IF admin_role_id IS NULL THEN
@@ -33,14 +37,17 @@ BEGIN
   VALUES (target_user_id, admin_role_id)
   ON CONFLICT (user_id, role_id) DO NOTHING;
 
-  RAISE NOTICE 'Admin role assigned successfully to user: %', target_user_id;
+  RAISE NOTICE 'Admin role assigned successfully to user: % (email: %)', target_user_id, user_email;
 END $$;
 
--- Option 2: Grant admin role to all existing users (uncomment to use)
--- INSERT INTO user_roles (user_id, role_id)
--- SELECT u.id, r.id
--- FROM users u
--- CROSS JOIN roles r
--- WHERE LOWER(r.name) = 'admin'
--- ON CONFLICT (user_id, role_id) DO NOTHING;
-
+-- Step 3: Verify the assignment
+SELECT 
+  u.email,
+  u.name,
+  r.name as role_name,
+  ur.assigned_at
+FROM users u
+JOIN user_roles ur ON u.id = ur.user_id
+JOIN roles r ON ur.role_id = r.id
+WHERE LOWER(r.name) = 'admin'
+ORDER BY ur.assigned_at DESC;
