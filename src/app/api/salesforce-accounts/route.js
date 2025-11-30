@@ -626,7 +626,7 @@ export async function GET(request) {
         if (cachedSearch && cachedSearch.isFresh) {
           // Use cached results (fresh)
           const accounts = cachedSearch.accounts.map(acc => ({
-            id: acc.salesforce_id || acc.id,
+            id: acc.id, // Always use the UUID from database
             salesforceId: acc.salesforce_id,
             name: acc.name,
             accountTier: acc.account_tier,
@@ -683,7 +683,7 @@ export async function GET(request) {
         const staleCache = await searchCachedAccounts(supabase, search);
         if (staleCache && staleCache.accounts.length > 0) {
           const accounts = staleCache.accounts.map(acc => ({
-            id: acc.salesforce_id || acc.id,
+            id: acc.id, // Always use the UUID from database
             salesforceId: acc.salesforce_id,
             name: acc.name,
             accountTier: acc.account_tier,
