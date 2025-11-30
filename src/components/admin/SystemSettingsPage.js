@@ -1350,13 +1350,18 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
 
   // Debug: Log settings on mount and when they change
   useEffect(() => {
-    console.log('ChatbotPromptsSection settings:', settings);
+    console.log('=== ChatbotPromptsSection RENDERED ===');
+    console.log('Settings object:', settings);
+    console.log('Settings keys:', settings ? Object.keys(settings) : 'null');
     console.log('PROMPT_BASE:', settings?.PROMPT_BASE);
     console.log('PROMPT_TEMPLATE:', settings?.PROMPT_TEMPLATE);
     if (settings?.PROMPT_BASE) {
       console.log('PROMPT_BASE structure:', Object.keys(settings.PROMPT_BASE));
       console.log('PROMPT_BASE.value:', settings.PROMPT_BASE.value);
       console.log('PROMPT_BASE.value type:', typeof settings.PROMPT_BASE.value);
+      if (settings.PROMPT_BASE.value && typeof settings.PROMPT_BASE.value === 'object') {
+        console.log('PROMPT_BASE.value keys:', Object.keys(settings.PROMPT_BASE.value));
+      }
     }
   }, [settings]);
 
@@ -1512,14 +1517,19 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
       </p>
       
       {/* Debug panel - remove after fixing */}
-      <div className="mb-4 p-4 bg-lean-gray-light rounded-lg text-xs font-mono">
+      <div className="mb-4 p-4 bg-lean-gray-light rounded-lg text-xs font-mono max-h-96 overflow-y-auto">
         <p className="font-semibold mb-2">Debug Info:</p>
+        <p>Component rendered: Yes</p>
         <p>Has settings: {hasSettings ? 'Yes' : 'No'}</p>
         <p>Has PROMPT_BASE: {hasPromptBase ? 'Yes' : 'No'}</p>
         <p>Has PROMPT_TEMPLATE: {hasPromptTemplate ? 'Yes' : 'No'}</p>
         <p>PROMPT_BASE.value type: {promptBaseValue ? typeof promptBaseValue : 'null'}</p>
         <p>PROMPT_BASE.value keys: {promptBaseValue && typeof promptBaseValue === 'object' ? Object.keys(promptBaseValue).join(', ') : 'N/A'}</p>
         <p>Settings keys: {hasSettings ? Object.keys(settings).join(', ') : 'None'}</p>
+        <p className="mt-2">Raw settings JSON:</p>
+        <pre className="text-xs bg-lean-white p-2 rounded mt-1 overflow-x-auto">
+          {JSON.stringify(settings, null, 2)}
+        </pre>
       </div>
       
       {(!settings || Object.keys(settings).length === 0 || (!settings.PROMPT_BASE && !settings.PROMPT_TEMPLATE)) && (
