@@ -1340,6 +1340,17 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
   const [localValues, setLocalValues] = useState({});
   const [expandedSection, setExpandedSection] = useState(null);
 
+  // Debug: Log settings on mount and when they change
+  useEffect(() => {
+    console.log('ChatbotPromptsSection settings:', settings);
+    console.log('PROMPT_BASE:', settings?.PROMPT_BASE);
+    console.log('PROMPT_TEMPLATE:', settings?.PROMPT_TEMPLATE);
+    if (settings?.PROMPT_BASE?.value) {
+      console.log('PROMPT_BASE.value:', settings.PROMPT_BASE.value);
+      console.log('Type:', typeof settings.PROMPT_BASE.value);
+    }
+  }, [settings]);
+
   const getValue = (key, defaultValue = '') => {
     // Check local values first (unsaved changes)
     if (localValues[`PROMPT_BASE_${key}`] !== undefined) {
@@ -1351,16 +1362,41 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     
     // Handle nested JSONB structure from database
     // settings should be the chatbot category object: { PROMPT_BASE: { value: {...} }, PROMPT_TEMPLATE: { value: {...} } }
-    if (settings?.PROMPT_BASE?.value && typeof settings.PROMPT_BASE.value === 'object') {
-      const value = settings.PROMPT_BASE.value[key];
-      if (value !== undefined && value !== null) {
-        return value;
+    if (settings?.PROMPT_BASE?.value) {
+      // Check if value is a string (needs parsing) or already an object
+      let baseValue = settings.PROMPT_BASE.value;
+      if (typeof baseValue === 'string') {
+        try {
+          baseValue = JSON.parse(baseValue);
+        } catch (e) {
+          console.error('Error parsing PROMPT_BASE.value:', e);
+        }
+      }
+      
+      if (typeof baseValue === 'object' && baseValue !== null) {
+        const value = baseValue[key];
+        if (value !== undefined && value !== null) {
+          return value;
+        }
       }
     }
-    if (settings?.PROMPT_TEMPLATE?.value && typeof settings.PROMPT_TEMPLATE.value === 'object') {
-      const value = settings.PROMPT_TEMPLATE.value[key];
-      if (value !== undefined && value !== null) {
-        return value;
+    
+    if (settings?.PROMPT_TEMPLATE?.value) {
+      // Check if value is a string (needs parsing) or already an object
+      let templateValue = settings.PROMPT_TEMPLATE.value;
+      if (typeof templateValue === 'string') {
+        try {
+          templateValue = JSON.parse(templateValue);
+        } catch (e) {
+          console.error('Error parsing PROMPT_TEMPLATE.value:', e);
+        }
+      }
+      
+      if (typeof templateValue === 'object' && templateValue !== null) {
+        const value = templateValue[key];
+        if (value !== undefined && value !== null) {
+          return value;
+        }
       }
     }
     
@@ -1435,11 +1471,6 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
     },
   ];
 
-  // Debug: Log settings to see what we're receiving
-  if (typeof window !== 'undefined' && Object.keys(settings).length === 0) {
-    console.log('ChatbotPromptsSection: No settings received. Settings object:', settings);
-  }
-
   return (
     <div>
       <h2 className="text-2xl font-bold text-lean-black mb-6">Chatbot Prompts</h2>
@@ -1447,11 +1478,14 @@ const ChatbotPromptsSection = ({ settings, onUpdate, saving }) => {
         Manage LUCI's system prompts. Changes take effect immediately for new chat sessions.
       </p>
       
-      {Object.keys(settings).length === 0 && (
+      {(!settings || Object.keys(settings).length === 0 || (!settings.PROMPT_BASE && !settings.PROMPT_TEMPLATE)) && (
         <div className="mb-4 p-4 bg-lean-yellow/20 border border-lean-yellow rounded-lg">
-          <p className="text-sm text-lean-black">
-            <strong>No prompt settings found.</strong> The migration may not have run, or the settings haven't been created yet. 
-            Please run the migration <code>023_add_chatbot_prompt_settings.sql</code> in your Supabase SQL Editor.
+          <p className="text-sm text-lean-black mb-2">
+            <strong>No prompt settings found.</strong> The migration may not have run, or the settings haven't been created yet.
+          </p>
+          <p className="text-xs text-lean-black-70">
+            Please run the migration <code className="bg-lean-gray-light px-1 rounded">023_add_chatbot_prompt_settings.sql</code> in your Supabase SQL Editor.
+            Check the browser console for debugging information.
           </p>
         </div>
       )}
