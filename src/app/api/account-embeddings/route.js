@@ -270,11 +270,14 @@ export async function POST(request) {
 
     // Process transcriptions (chunk long ones)
     if (data.transcriptions && Array.isArray(data.transcriptions)) {
+      log(`Processing ${data.transcriptions.length} transcriptions for embedding`);
       for (const transcription of data.transcriptions) {
+        // Check for transcription text in various possible fields
+        const rawTranscript = transcription.transcriptionText || transcription.transcript || transcription.text || '';
         const transcriptionText = formatTranscriptionDataForEmbedding(transcription);
-        if (transcriptionText && transcription.transcriptionText) {
+        if (transcriptionText && rawTranscript) {
           // Chunk long transcriptions
-          const chunks = chunkText(transcription.transcriptionText, 1000, 100);
+          const chunks = chunkText(rawTranscript, 1000, 100);
           
           for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];

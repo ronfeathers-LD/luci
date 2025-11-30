@@ -162,6 +162,13 @@ export async function POST(request) {
           metadata: emb.metadata,
         }));
         log(`Found ${contextChunks.length} similar embeddings via RPC`);
+        // Log what types of data we found
+        const dataTypes = contextChunks.map(c => c.type);
+        const typeCounts = dataTypes.reduce((acc, type) => {
+          acc[type] = (acc[type] || 0) + 1;
+          return acc;
+        }, {});
+        log(`Context data types: ${JSON.stringify(typeCounts)}`);
       } else {
         if (searchError) {
           logError('RPC function error:', searchError);
