@@ -128,7 +128,8 @@ export async function POST(request) {
       return sendErrorResponse(new Error(`Failed to process query: ${embedError.message}`), 500);
     }
     
-    const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
+    // Convert to array format for Supabase (not string)
+    // Supabase pgvector expects an array of numbers
 
     // Find similar embeddings using vector similarity search
     // Using cosine distance (1 - cosine similarity)
@@ -136,9 +137,10 @@ export async function POST(request) {
     
     try {
       // Try RPC function first (more efficient)
+      // Pass embedding as array directly (Supabase will convert to vector type)
       const { data: similarEmbeddings, error: searchError } = await supabase
         .rpc('match_account_embeddings', {
-          query_embedding: queryEmbeddingStr,
+          query_embedding: queryEmbedding, // Pass as array, not string
           match_account_id: actualAccountId,
           match_threshold: 0.7, // Minimum similarity threshold
           match_count: 5, // Return top 5 most similar chunks
